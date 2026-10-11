@@ -1,5 +1,5 @@
-const CACHE='pixel-studio-v3-perfect-pixel-release';
-const FILES=['./','./index.html','./style.css','./ui.css','./app.js','./engine.js','./ase.js','./gif.js','./gestures.js','./dialogs.js','./pixel-import.js','./pixel-import.css','./pixel-worker.js','./perfect-pixel.js','./perfect-pixel-LICENSE.txt','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png'];
+const CACHE='pixel-studio-v4-plugins-r3';
+const FILES=['./','./index.html','./style.css','./ui.css','./app.js','./engine.js','./ase.js','./gif.js','./gestures.js','./dialogs.js','./pixel-import.js','./pixel-import.css','./pixel-worker.js','./plugin-core.js','./plugins.js','./plugins.css','./plugin-sources.txt','./perfect-pixel.js','./perfect-pixel-LICENSE.txt','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES))));
 self.addEventListener('message',event=>{if(event.data?.type==='ACTIVATE_UPDATE')self.skipWaiting();});
 self.addEventListener('activate',event=>event.waitUntil(self.clients.claim()));
