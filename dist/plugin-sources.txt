@@ -1,0 +1,37 @@
+Pixel Studio built-in extensions v0.4
+
+These are independent browser implementations of publicly described functions.
+They are not official ports, do not bundle the original authors' Lua code or
+assets, and cannot load .aseprite-extension packages. Original plugin names are
+used to identify the user-requested references. No affiliation is claimed.
+
+ISO Box — darkwark
+https://darkwark.itch.io/isobox-for-aseprite
+Browser: 2:1 boxes, side colors, highlights, outlines, corner variants, wireframe.
+Corner rasterization and dimensions may differ from the original Lua script.
+
+Magic Pencil — Kacper Woźniak
+https://thkaspar.itch.io/magic-pencil
+Browser: outline/graffiti brushes, connected-shape outline, lift/merge/select,
+RGB/HSV mixing, weighted mixing, hue/color/saturation/value and palette limiting.
+No magic foreground/background color protocol or right-click-dependent modes.
+
+Animation Suite — Kacper Woźniak
+https://thkaspar.itch.io/animation-suite
+Browser: source layer/frame range/current selection, static/linear/sine motion,
+multi-layer periods with LCM loop. Aseprite tags are not retained by the importer;
+use the corresponding frame range instead. Maximum 240 frames / 8M pixels.
+
+Snap Selection — kid marscat
+https://kidmarscat.itch.io/snapselection
+Browser: rectangle and painted selection, outward grid snap with offsets,
+move/copy/extract selected pixels. Pixel content moves only on explicit apply.
+
+Normal Shading — Mooosik
+https://mooosik.itch.io/shading-extension
+Browser: Blinn–Phong directional, ambient and specular lighting, source normal
+layer or imported map, optional specular map, Y flip, current/all-frame output.
+View direction is fixed toward +Z. Rendering is not bit-for-bit equivalent.
+
+References inspected 2026-10-11. Public availability/download pricing alone is
+not a redistribution license; original packages were not redistributed.
