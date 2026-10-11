@@ -1,0 +1,36 @@
+Perfect Pixel attribution
+
+Original author: theAmusing
+Source: https://github.com/theamusing/perfectPixel
+Upstream commit: 72096de5cf1bff9102687c4f89af6f62c4273a86
+Version: 0.1.4
+License declared MIT in upstream pyproject.toml and readme.md.
+Adapted from src/perfect_pixel/perfect_pixel_noCV2.py.
+
+Pixel Studio modifications: browser JavaScript and worker execution, arbitrary-size
+Bluestein FFT, deterministic bounded cell sampling, premultiplied alpha support,
+clamped full-image boundaries, fixed manual dimensions, flat Sobel peak handling,
+optional palette reduction and resource limits. This is an adapted implementation,
+not a claim of bit-for-bit equality with Python or an affiliation with the author.
+
+MIT License
+
+Copyright (c) theAmusing
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
