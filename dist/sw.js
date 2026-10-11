@@ -1,6 +1,6 @@
-const CACHE='pixel-studio-v7-ase-animation-r4';
+const CACHE='pixel-studio-v7-ase-animation-r5';
 const FILES=['./','./index.html','./style.css','./ui.css','./app.js','./animation.js','./animation.css','./svg.js','./palettes.js','./color-studio.js','./gallery.js','./studio.css','./engine.js','./ase.js','./gif.js','./gestures.js','./dialogs.js','./pixel-import.js','./pixel-import.css','./pixel-worker.js','./plugin-core.js','./plugins.js','./plugins.css','./workspace.css','./floating.js','./selection.js','./selection-ui.js','./quick-shape.js','./plugin-sources.txt','./perfect-pixel.js','./perfect-pixel-LICENSE.txt','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png'];
-self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES))));
+self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>Promise.all(FILES.map(async file=>{const url=new URL(file,self.location.href);url.searchParams.set('build',CACHE);const response=await fetch(url,{cache:'reload'});if(!response.ok)throw Error('画室资源下载失败');await cache.put(new URL(file,self.location.href),response);})))));
 self.addEventListener('message',event=>{if(event.data?.type==='ACTIVATE_UPDATE')self.skipWaiting();});
 self.addEventListener('activate',event=>event.waitUntil(self.clients.claim()));
 // Keep installed assets together; only replace an open version after saving.
