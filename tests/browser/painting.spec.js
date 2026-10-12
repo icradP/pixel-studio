@@ -32,9 +32,13 @@ async function layers(page) {
 }
 async function draw(page) {
   const box = await page.locator('#view').boundingBox();
-  await page.mouse.move(box.x + box.width * 0.35, box.y + box.height * 0.45);
+  // Small documents are capped at 20x: viewport percentages can start outside
+  // their actual canvas. The fit control places its center 20px to the right.
+  const x = box.x + box.width / 2 + 20,
+    y = box.y + box.height / 2;
+  await page.mouse.move(x - 60, y);
   await page.mouse.down();
-  await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.55, { steps: 8 });
+  await page.mouse.move(x + 60, y + 20, { steps: 8 });
   await page.mouse.up();
 }
 test('layer effects and editable masks persist, painting the mask does not overwrite the cel', async ({
@@ -66,9 +70,7 @@ test('layer effects and editable masks persist, painting the mask does not overw
   ).toBeVisible();
 });
 
-test('gradient draw, undo, redo and mask gradients use the normal drawing transaction', async ({
-  page,
-}) => {
+test('gradient draw, undo and redo use the normal drawing transaction', async ({ page }) => {
   await ready(page);
   await page.getByRole('button', { name: '绘画工具菜单', exact: true }).click();
   await page.getByRole('button', { name: '渐变', exact: true }).click();
