@@ -34,6 +34,7 @@ export function normalizeBrush(value = {}, fallback = {}) {
     name: typeof b.name === 'string' && b.name.trim() ? b.name.trim().slice(0, 40) : '像素铅笔',
     group: ['pixel', 'dither', 'magic', 'user'].includes(b.group) ? b.group : 'user',
     size: Math.round(number(b.size, 1, 1, 32)),
+    opacity: Math.round(number(b.opacity, 100, 1, 100)),
     pressure: b.pressure !== false,
     shape: ['square', 'round', 'custom'].includes(b.shape) ? b.shape : 'square',
     mask:
@@ -146,6 +147,7 @@ export function stampBrush({
   selection = null,
   mask = null,
   erase = false,
+  base = pixels,
 }) {
   const half = Math.floor(size / 2),
     dither = brush.dither;
@@ -169,7 +171,29 @@ export function stampBrush({
       const foreground = !dither.enabled || ditherPixel(px, py, dither);
       if (!foreground && (!dither.secondary || mask || erase)) continue;
       if (mask) mask[index] = 1;
-      else pixels.set(erase ? [0, 0, 0, 0] : foreground ? color : secondary, index * 4);
+      else {
+        const offset = index * 4,
+          opacity = (brush.opacity ?? 100) / 100,
+          source = foreground ? color : secondary;
+        if (erase) {
+          pixels.set(base.subarray(offset, offset + 4), offset);
+          pixels[offset + 3] = Math.round(base[offset + 3] * (1 - opacity));
+          if (!pixels[offset + 3]) pixels.fill(0, offset, offset + 4);
+        } else {
+          if (opacity === 1 && source[3] === 255) {
+            pixels.set(source, offset);
+            continue;
+          }
+          const sa = (source[3] / 255) * opacity,
+            da = base[offset + 3] / 255,
+            alpha = sa + da * (1 - sa);
+          for (let c = 0; c < 3; c++)
+            pixels[offset + c] = alpha
+              ? Math.round((source[c] * sa + base[offset + c] * da * (1 - sa)) / alpha)
+              : 0;
+          pixels[offset + 3] = Math.round(alpha * 255);
+        }
+      }
     }
 }
 
@@ -187,4 +211,19 @@ export function brushHint(brush) {
   return brush.dither.enabled
     ? '纹理对齐画布网格；重复涂画保持相同点阵。'
     : '硬边像素笔触，保留每一颗像素的清晰边界。';
+}
+
+// Blend a completed effect with the stroke's starting pixels using premultiplied alpha.
+export function mixStrokeOpacity(base, result, opacity = 100) {
+  if (opacity >= 100) return result;
+  const t = Math.max(0, opacity) / 100;
+  for (let i = 0; i < result.length; i += 4) {
+    const a = base[i + 3] * (1 - t),
+      b = result[i + 3] * t,
+      alpha = a + b;
+    for (let c = 0; c < 3; c++)
+      result[i + c] = alpha ? Math.round((base[i + c] * a + result[i + c] * b) / alpha) : 0;
+    result[i + 3] = Math.round(alpha);
+  }
+  return result;
 }

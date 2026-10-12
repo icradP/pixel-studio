@@ -25,6 +25,7 @@
     <link rel="stylesheet" href="./controls.css" />
     <link rel="stylesheet" href="./brushes.css" />
     <link rel="stylesheet" href="./selection.css" />
+    <link rel="stylesheet" href="./workflow.css" />
   </head>
   <body>
     <div id="update-banner" hidden>
@@ -39,19 +40,15 @@
           <svg viewBox="0 0 24 24">
             <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
           </svg></button
-        ><button id="brush-size" class="size-button" data-panel="brush" aria-label="调整笔刷大小">
-          1 px
-        </button>
+        ><span id="editing-tools"></span
+        ><button data-panel="export" aria-label="保存与导出" title="保存与导出"></button>
       </div>
       <button id="title-button" class="title-button" aria-label="重命名作品">
         <strong id="project-name">像素画室</strong
         ><span id="project-detail">160 × 112 · 第 1 帧</span>
       </button>
       <div class="top-right">
-        <span id="save-status" class="save-status">本地画室</span
-        ><button data-panel="brush" aria-label="笔刷设置" title="笔刷工作室"></button
-        ><button data-panel="export" aria-label="保存与导出" title="保存与导出"></button
-        ><button id="fit" aria-label="画布适应窗口" title="适应窗口"></button
+        <span id="save-status" class="save-status">本地画室</span><span id="painting-tools"></span
         ><button data-panel="layers" aria-label="图层面板" title="图层面板"></button
         ><button id="header-color" aria-label="打开颜色" title="颜色">
           <span class="color-dot"></span></button
@@ -69,6 +66,7 @@
       </div>
       <div class="tools" id="tools" role="toolbar" aria-label="绘画工具"></div>
       <div class="size-rail">
+        <span id="brush-size" hidden>1 px</span>
         <span id="side-size-value">1 px</span
         ><input
           id="side-size"
@@ -78,9 +76,21 @@
           value="1"
           aria-label="快速调整笔刷大小"
         />
+        <div id="side-modify"></div>
+        <span id="side-opacity-value">100%</span
+        ><input
+          id="side-opacity"
+          type="range"
+          min="1"
+          max="100"
+          value="100"
+          aria-label="快速调整笔刷不透明度"
+        />
+        <div id="side-history"></div>
       </div>
       <div class="view-controls">
-        <button id="zoom-out" aria-label="缩小画布">−</button
+        <button id="fit" aria-label="画布适应窗口" title="适应窗口"></button
+        ><button id="zoom-out" aria-label="缩小画布">−</button
         ><button id="zoom-label" aria-label="重置画布视角">400%</button
         ><button id="zoom-in" aria-label="放大画布">＋</button><span></span
         ><button id="rotate" aria-label="顺时针旋转画布">↻</button
@@ -147,7 +157,13 @@
       </div>
       <div id="gallery-selection" hidden>
         <span id="gallery-selected-count"></span><button id="gallery-copy">复制</button
-        ><button id="gallery-rename">重命名</button><button id="gallery-delete">删除</button>
+        ><button id="gallery-rename">重命名</button><button id="gallery-stack">堆叠</button
+        ><button id="gallery-unstack" hidden>移出堆叠</button
+        ><button id="gallery-share">分享</button><button id="gallery-delete">删除</button>
+      </div>
+      <div id="gallery-path">
+        <button id="gallery-back" hidden>‹ 全部作品</button><span id="gallery-stack-name"></span
+        ><span id="gallery-total"></span>
       </div>
       <p
         id="import-status"

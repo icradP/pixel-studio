@@ -1,4 +1,4 @@
-import { BRUSH_GROUPS, MAGIC_MODES, brushHint, stampBrush } from './brushes.js';
+import { BRUSH_GROUPS, MAGIC_MODES, brushHint, stampBrush, mixStrokeOpacity } from './brushes.js';
 import { rgba, line } from './engine.js';
 import { magicPixels } from './plugin-core.js';
 import { updateRanges } from './controls.js';
@@ -34,7 +34,11 @@ function applySample(base, pixels, mask, w, h, brush, color, palette) {
     for (let i = 0; i < mask.length; i++) if (mask[i]) out.set(rgba('#83c5ff'), i * 4);
     return out;
   }
-  return magicPixels(base, w, h, mask, brush.magic, color, palette);
+  return mixStrokeOpacity(
+    base,
+    magicPixels(base, w, h, mask, brush.magic, color, palette),
+    brush.opacity,
+  );
 }
 function paint(canvas, pixels) {
   canvas.getContext('2d').putImageData(new ImageData(pixels, canvas.width, canvas.height), 0, 0);
@@ -51,6 +55,7 @@ function sampleStroke(canvas, brush, color, palette) {
     const stamp = (px, py) =>
       stampBrush({
         pixels,
+        base,
         w,
         h,
         x: px,
@@ -80,17 +85,20 @@ export function createBrushPanel(root, host, initialGroup) {
   });
   const q = (selector) => root.querySelector(selector);
   const current = () => host.current();
+  const tipBrush = (brush) =>
+    host.mode?.() === 'eraser' ? { ...brush, magic: { ...brush.magic, enabled: false } } : brush;
   function drawCards() {
     root.querySelectorAll('[data-brush]').forEach((button) => {
       const brush = host.brushes().find((item) => item.id === button.dataset.brush);
-      if (brush) sampleStroke(button.querySelector('canvas'), brush, '#e4e8f2', host.palette());
+      if (brush)
+        sampleStroke(button.querySelector('canvas'), tipBrush(brush), '#e4e8f2', host.palette());
     });
   }
   function library() {
     studio = false;
     root.scrollTop = 0;
     root.classList.remove('brush-studio-view');
-    root.innerHTML = `<div class="brush-library-head"><div><small>你的每一笔，都有自己的质感</small><strong>笔刷收藏</strong></div><button id="brush-new" aria-label="复制当前笔刷为新笔刷">＋</button><button id="brush-configure" aria-label="配置当前笔刷">调校</button></div><div class="brush-search"><input id="brush-search" type="search" aria-label="搜索笔刷" placeholder="搜索笔刷名称" value="${esc(query)}"></div><div class="brush-library-split"><nav class="brush-groups" aria-label="笔刷分类">${BRUSH_GROUPS.map(([id, name, icon]) => `<button data-brush-group="${id}" aria-pressed="${id === group}"><span aria-hidden="true">${icon}</span>${name}</button>`).join('')}</nav><div class="brush-list" role="group" aria-label="笔刷列表"></div></div><div class="brush-library-foot"><span id="brush-current"></span><small>轻点选择 · 再点调校</small></div>`;
+    root.innerHTML = `<div class="brush-library-head"><div><small>${host.mode?.() === 'eraser' ? 'ERASE' : 'PAINT'}</small><strong>${host.mode?.() === 'eraser' ? '橡皮笔刷库' : '画笔库'}</strong></div><button id="brush-new" aria-label="复制当前笔刷为新笔刷">＋</button><button id="brush-configure" aria-label="配置当前笔刷">调校</button></div><div class="brush-search"><input id="brush-search" type="search" aria-label="搜索笔刷" placeholder="搜索笔刷名称" value="${esc(query)}"></div><div class="brush-library-split"><nav class="brush-groups" aria-label="笔刷分类">${BRUSH_GROUPS.map(([id, name, icon]) => `<button data-brush-group="${id}" aria-pressed="${id === group}"><span aria-hidden="true">${icon}</span>${name}</button>`).join('')}</nav><div class="brush-list" role="group" aria-label="笔刷列表"></div></div><div class="brush-library-foot"><span id="brush-current"></span><small>轻点选择 · 再点调校</small></div>`;
     q('#brush-new').onclick = duplicate;
     q('#brush-configure').onclick = configure;
     root.querySelectorAll('[data-brush-group]').forEach(
@@ -159,7 +167,8 @@ export function createBrushPanel(root, host, initialGroup) {
     root.scrollTop = 0;
     root.classList.add('brush-studio-view');
     const b = current();
-    root.innerHTML = `<div class="brush-studio-head"><button id="brush-back">‹ 笔刷库</button><strong id="brush-studio-name">${esc(b.name)}</strong><button id="brush-done" class="primary">完成</button></div><div class="brush-pad-head"><span>试画板</span><button id="brush-pad-reset">重置笔迹</button></div><canvas id="brush-pad" width="288" height="110" aria-label="笔刷试画板"></canvas><p id="brush-hint" class="help"></p><section class="brush-section"><h3>笔触</h3>${range('size-range', '笔刷大小', 1, 32, b.size, ' px')}<label>笔尖形状<select id="brush-shape"><option value="square">方形 · 硬边像素</option><option value="round">圆形 · 硬边像素</option><option value="custom">自定义 · 8 × 8 笔尖</option></select></label>${check('pressure', '笔压控制大小', b.pressure)}<div id="brush-custom" ${b.shape !== 'custom' ? 'hidden' : ''}><div class="brush-grid">${b.mask.map((v, i) => `<button type="button" data-mask="${i}" aria-label="笔尖像素 ${i + 1}" aria-pressed="${!!v}" class="${v ? 'on' : ''}"></button>`).join('')}</div><div class="brush-chips"><button id="mask-square">实心</button><button id="mask-cross">十字</button><button id="mask-clear">清空</button></div><small class="help">轻点格子绘制笔尖，空白笔尖不会留下笔迹。</small></div></section><section class="brush-section"><h3>纹理与抖色</h3>${check('dither-enabled', '抖动绘制', b.dither.enabled)}<div id="dither-options" ${!b.dither.enabled ? 'hidden' : ''}><label>抖色纹理<select id="dither-pattern"><option value="bayer">有序点阵 · Bayer 4×4</option><option value="diagonal">斜线纹理</option></select></label>${range('dither-density', '点阵密度', 1, 16, b.dither.density)}${range('dither-scale', '纹理格子', 1, 4, b.dither.scale, ' px')}${check('dither-invert', '反转点阵', b.dither.invert)}${check('dither-secondary', '双色抖色', b.dither.secondary)}<label id="dither-color-row" class="brush-color-row">第二颜色<input id="dither-color" type="color" value="${b.dither.secondaryColor}"></label><p class="help">关闭双色时，点阵间隙保留原有像素。魔法效果仅使用前景点阵作为作用范围。</p></div></section><section class="brush-section"><h3>Magic Pencil</h3>${check('magic-enabled', '魔法效果', b.magic.enabled)}<div id="magic-options" ${!b.magic.enabled ? 'hidden' : ''}><label>笔刷效果<select id="magic-mode">${MAGIC_MODES.map(([id, title]) => `<option value="${id}">${title}</option>`).join('')}</select></label><label class="brush-color-row">描边颜色<input id="magic-outline" type="color" value="${b.magic.outline}"></label>${range('magic-strength', '效果强度', 1, 100, Math.round(b.magic.strength * 100), '%')}${check('magic-negative', '降低 / 反向', b.magic.negative)}${check('magic-proportional', '按像素数量加权混色', b.magic.proportional)}${check('magic-indexed', '贴合当前色板', b.magic.indexed)}<p class="help">试画板中的蓝色标记表示选择或提取范围；实际选区、图层操作会在画布抬笔后执行。</p></div></section><section class="brush-section brush-manage"><button id="brush-copy" class="panel-wide">保存为新笔刷 <span>＋</span></button>${b.group === 'user' ? '<button id="brush-rename" class="panel-wide">重命名笔刷</button><button id="brush-delete" class="panel-wide danger">删除这支笔刷</button>' : '<button id="brush-reset" class="panel-wide">还原此笔刷默认设置</button>'}<small>每支笔刷单独记忆参数，保存在此设备。</small></section>`;
+    const original = structuredClone(b);
+    root.innerHTML = `<div class="brush-studio-head"><button id="brush-back">‹ 笔刷库</button><strong id="brush-studio-name">${esc(b.name)}</strong><button id="brush-cancel">取消</button><button id="brush-done" class="primary">完成</button></div><div class="brush-pad-head"><span>试画板</span><button id="brush-pad-reset">重置笔迹</button></div><canvas id="brush-pad" width="288" height="110" aria-label="笔刷试画板"></canvas><p id="brush-hint" class="help"></p><section class="brush-section"><h3>笔触</h3>${range('size-range', '笔刷大小', 1, 32, b.size, ' px')}${range('brush-opacity', '不透明度', 1, 100, b.opacity, '%')}<label>笔尖形状<select id="brush-shape"><option value="square">方形 · 硬边像素</option><option value="round">圆形 · 硬边像素</option><option value="custom">自定义 · 8 × 8 笔尖</option></select></label>${check('pressure', '笔压控制大小', b.pressure)}<div id="brush-custom" ${b.shape !== 'custom' ? 'hidden' : ''}><div class="brush-grid">${b.mask.map((v, i) => `<button type="button" data-mask="${i}" aria-label="笔尖像素 ${i + 1}" aria-pressed="${!!v}" class="${v ? 'on' : ''}"></button>`).join('')}</div><div class="brush-chips"><button id="mask-square">实心</button><button id="mask-cross">十字</button><button id="mask-clear">清空</button></div><small class="help">轻点格子绘制笔尖，空白笔尖不会留下笔迹。</small></div></section><section class="brush-section"><h3>纹理与抖色</h3>${check('dither-enabled', '抖动绘制', b.dither.enabled)}<div id="dither-options" ${!b.dither.enabled ? 'hidden' : ''}><label>抖色纹理<select id="dither-pattern"><option value="bayer">有序点阵 · Bayer 4×4</option><option value="diagonal">斜线纹理</option></select></label>${range('dither-density', '点阵密度', 1, 16, b.dither.density)}${range('dither-scale', '纹理格子', 1, 4, b.dither.scale, ' px')}${check('dither-invert', '反转点阵', b.dither.invert)}${check('dither-secondary', '双色抖色', b.dither.secondary)}<label id="dither-color-row" class="brush-color-row">第二颜色<input id="dither-color" type="color" value="${b.dither.secondaryColor}"></label><p class="help">关闭双色时，点阵间隙保留原有像素。魔法效果仅使用前景点阵作为作用范围。</p></div></section><section class="brush-section"><h3>Magic Pencil</h3>${check('magic-enabled', '魔法效果', b.magic.enabled)}<div id="magic-options" ${!b.magic.enabled ? 'hidden' : ''}><label>笔刷效果<select id="magic-mode">${MAGIC_MODES.map(([id, title]) => `<option value="${id}">${title}</option>`).join('')}</select></label><label class="brush-color-row">描边颜色<input id="magic-outline" type="color" value="${b.magic.outline}"></label>${range('magic-strength', '效果强度', 1, 100, Math.round(b.magic.strength * 100), '%')}${check('magic-negative', '降低 / 反向', b.magic.negative)}${check('magic-proportional', '按像素数量加权混色', b.magic.proportional)}${check('magic-indexed', '贴合当前色板', b.magic.indexed)}<p class="help">试画板中的蓝色标记表示选择或提取范围；实际选区、图层操作会在画布抬笔后执行。</p></div></section><section class="brush-section brush-manage"><button id="brush-copy" class="panel-wide">保存为新笔刷 <span>＋</span></button>${b.group === 'user' ? '<button id="brush-rename" class="panel-wide">重命名笔刷</button><button id="brush-delete" class="panel-wide danger">删除这支笔刷</button>' : '<button id="brush-reset" class="panel-wide">还原此笔刷默认设置</button>'}<small>每支笔刷单独记忆参数，保存在此设备。</small></section>`;
     const sections = [...root.querySelectorAll('.brush-section')];
     const preview = document.createElement('div');
     preview.className = 'brush-studio-preview';
@@ -195,18 +204,20 @@ export function createBrushPanel(root, host, initialGroup) {
       button.setAttribute('role', 'tab');
       button.setAttribute('aria-controls', sections[i].id);
       button.textContent = name;
+      button.hidden = id === 'magic' && host.mode?.() === 'eraser';
       button.onclick = () => activate(i);
       button.onkeydown = (event) => {
-        const index =
-          event.key === 'ArrowRight'
-            ? (i + 1) % 4
-            : event.key === 'ArrowLeft'
-              ? (i + 3) % 4
-              : event.key === 'Home'
-                ? 0
-                : event.key === 'End'
-                  ? 3
-                  : -1;
+        const available = host.mode?.() === 'eraser' ? [0, 1, 3] : [0, 1, 2, 3];
+        const position = available.indexOf(i);
+        const index = ['ArrowRight', 'ArrowDown'].includes(event.key)
+          ? available[(position + 1) % available.length]
+          : ['ArrowLeft', 'ArrowUp'].includes(event.key)
+            ? available[(position + available.length - 1) % available.length]
+            : event.key === 'Home'
+              ? 0
+              : event.key === 'End'
+                ? 3
+                : -1;
         if (index >= 0) {
           event.preventDefault();
           activate(index);
@@ -215,15 +226,20 @@ export function createBrushPanel(root, host, initialGroup) {
       };
       tabs.append(button);
     });
-    preview.append(tabs);
-    activate(b.magic.enabled ? 2 : b.dither.enabled ? 1 : 0);
+    root.prepend(q('.brush-studio-head'));
+    root.insertBefore(tabs, preview);
+    activate(b.magic.enabled && host.mode?.() !== 'eraser' ? 2 : b.dither.enabled ? 1 : 0);
     q('#brush-shape').value = b.shape;
     q('#dither-pattern').value = b.dither.pattern;
     q('#magic-mode').value = b.magic.mode;
     q('#brush-back').onclick = library;
+    q('#brush-cancel').onclick = () => {
+      host.update(original);
+      library();
+    };
     q('#brush-done').onclick = () => {
       host.persist();
-      host.close();
+      library();
     };
     q('#brush-pad-reset').onclick = resetPad;
     q('#brush-copy').onclick = duplicate;
@@ -233,6 +249,7 @@ export function createBrushPanel(root, host, initialGroup) {
       input.onchange = () => host.persist();
     };
     bindRange('size-range', (size) => ({ size }));
+    bindRange('brush-opacity', (opacity) => ({ opacity }));
     bindRange('dither-density', (density) => ({ dither: { density } }));
     bindRange('dither-scale', (scale) => ({ dither: { scale } }));
     bindRange('magic-strength', (strength) => ({ magic: { strength: strength / 100 } }));
@@ -322,7 +339,7 @@ export function createBrushPanel(root, host, initialGroup) {
     const canvas = q('#brush-pad');
     if (!canvas) return;
     scratch = null;
-    sampleStroke(canvas, current(), host.color(), host.palette());
+    sampleStroke(canvas, tipBrush(current()), host.color(), host.palette());
   }
   function installPad() {
     const canvas = q('#brush-pad'),
@@ -338,7 +355,7 @@ export function createBrushPanel(root, host, initialGroup) {
     const move = (event) => {
       if (!scratch || event.pointerId !== scratch.id) return;
       const p = point(event),
-        b = current();
+        b = tipBrush(current());
       const n =
         b.pressure && event.pointerType === 'pen'
           ? Math.max(1, Math.round(b.size * (0.25 + 0.75 * (event.pressure || 0.5))))
@@ -346,6 +363,7 @@ export function createBrushPanel(root, host, initialGroup) {
       line(scratch.last.x, scratch.last.y, p.x, p.y, (x, y) =>
         stampBrush({
           pixels: scratch.pixels,
+          base: scratch.base,
           w,
           h,
           x,
@@ -355,6 +373,7 @@ export function createBrushPanel(root, host, initialGroup) {
           color: rgba(host.color()),
           secondary: rgba(b.dither.secondaryColor),
           mask: b.magic.enabled ? scratch.mask : null,
+          erase: host.mode?.() === 'eraser',
         }),
       );
       scratch.last = p;
@@ -402,8 +421,16 @@ export function createBrushPanel(root, host, initialGroup) {
       if (q('#brush-current')) q('#brush-current').textContent = `${b.name} · ${b.size} px`;
       return;
     }
-    q('#brush-hint').textContent = brushHint(b);
+    q('#brush-hint').textContent =
+      host.mode?.() === 'eraser'
+        ? '橡皮使用所选笔尖与抖色纹理；不透明度决定擦除程度。'
+        : brushHint(b);
     q('#size-range').value = b.size;
+    q('#brush-opacity').value = b.opacity;
+    q('#brush-opacity').disabled =
+      host.mode?.() !== 'eraser' &&
+      b.magic.enabled &&
+      ['select', 'select-erase', 'lift', 'merge'].includes(b.magic.mode);
     root.querySelectorAll('input[type="range"]').forEach((input) => {
       const output = root.querySelector(`output[for="${input.id}"]`);
       output.textContent =
