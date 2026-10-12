@@ -159,6 +159,10 @@ test('multiple reference windows resize and drag independently, import and pick 
   await page.locator('#reference-add').click();
   await settled(page);
   const first = page.locator('.reference-window').first();
+  const firstSize = await first.evaluate((el) => ({
+    width: el.offsetWidth,
+    height: el.offsetHeight,
+  }));
   await first.locator('.reference-new').click();
   await settled(page);
   const second = page.locator('.reference-window').last();
@@ -176,7 +180,8 @@ test('multiple reference windows resize and drag independently, import and pick 
   await page.mouse.move(handle.x + 94, handle.y + 72, { steps: 10 });
   await page.mouse.up();
   expect((await second.boundingBox()).width - moved.width).toBeGreaterThan(65);
-  expect((await first.boundingBox()).width).toBeCloseTo(310, 0);
+  expect((await first.boundingBox()).width).toBeCloseTo(firstSize.width, 0);
+  expect((await first.boundingBox()).height).toBeCloseTo(firstSize.height, 0);
   await second
     .locator('.reference-file')
     .setInputFiles({ name: 'reference.png', mimeType: 'image/png', buffer: await picture(page) });
