@@ -1,0 +1,230 @@
+#selection-bar {
+  width: min(700px, calc(100vw - 24px));
+}
+#selection-bar .selection-head {
+  height: 50px;
+  min-height: 50px;
+  padding-left: 16px;
+}
+#selection-bar .selection-head strong {
+  flex: 0 1 auto;
+  font-size: 14px;
+}
+#selection-count {
+  color: var(--muted);
+  font-size: 11px;
+  margin-left: 8px;
+  margin-right: auto;
+  white-space: nowrap;
+}
+#selection-bar #selection-done {
+  width: auto;
+  padding: 0 14px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #102236;
+  font-size: 12px;
+}
+#selection-bar .selection-body {
+  padding: 12px 14px;
+}
+#selection-tools,
+#selection-mode {
+  display: flex;
+  gap: 3px;
+}
+#selection-tools button,
+#selection-mode button {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  min-height: 38px;
+}
+#selection-compose {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 10px;
+}
+#selection-mode {
+  flex: 1;
+}
+.selection-history {
+  display: flex;
+  gap: 4px;
+}
+.selection-history button {
+  width: 40px;
+  height: 40px;
+  font-size: 23px;
+  background: var(--surface-inset);
+}
+#selection-instruction {
+  margin: 10px 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+#wand-options {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 0;
+}
+#selection-bar .wand-threshold {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 3px 12px;
+  margin: 0;
+  flex: 1;
+  font-size: 11px;
+}
+#selection-bar .wand-threshold input {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin: 0;
+  min-height: 30px;
+}
+.wand-threshold output {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+#wand-settings-toggle {
+  font-size: 11px;
+  min-height: 40px;
+  padding: 0 12px;
+  background: var(--surface-inset);
+  white-space: nowrap;
+}
+#wand-settings-toggle[aria-expanded='true'] {
+  color: var(--accent);
+}
+#wand-summary {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+#wand-settings {
+  padding: 8px 12px 12px;
+  margin-top: 8px;
+  border: 1px solid var(--stroke);
+  border-radius: 12px;
+  background: var(--surface-inset);
+}
+#wand-settings .switch {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 8px 0;
+  font-size: 12px;
+}
+#wand-settings p {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 10px 0 0;
+}
+#selection-actions {
+  border-top: 1px solid var(--stroke);
+  padding-top: 10px;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  overflow-x: auto;
+  touch-action: pan-x;
+  scrollbar-width: thin;
+}
+#selection-actions button {
+  min-height: 40px;
+  flex: 1 0 auto;
+  font-size: 11px;
+  padding: 0 12px;
+}
+#selection-actions #selection-transform {
+  margin-left: 0;
+  background: var(--accent);
+  color: #102236;
+}
+#selection-bar.float-collapsed #selection-count,
+#selection-bar.float-collapsed #selection-done {
+  display: none;
+}
+#selection-threshold-hud {
+  position: fixed;
+  z-index: 90;
+  left: 50%;
+  top: calc(env(safe-area-inset-top, 0px) + 78px);
+  transform: translateX(-50%);
+  width: min(280px, calc(100vw - 36px));
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  padding: 14px 18px;
+  border: 1px solid var(--stroke);
+  border-radius: 16px;
+  background: var(--panel);
+  box-shadow: 0 8px 30px #0005;
+  pointer-events: none;
+  font-size: 12px;
+}
+#selection-threshold-hud[hidden] {
+  display: none;
+}
+#selection-threshold-hud strong {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+#selection-threshold-hud i {
+  grid-column: 1 / -1;
+  height: 3px;
+  border-radius: 3px;
+  background: linear-gradient(
+    to right,
+    var(--accent) var(--threshold),
+    var(--stroke) var(--threshold)
+  );
+}
+#selection-threshold-hud small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: center;
+}
+@media (max-width: 550px) {
+  #selection-compose .selection-history {
+    display: flex;
+    margin-right: auto;
+  }
+  .selection-open #floatbar {
+    display: none;
+  }
+  #selection-compose {
+    flex-wrap: wrap;
+  }
+  #selection-mode {
+    flex-basis: 100%;
+  }
+  #selection-bar .selection-head {
+    padding-left: 12px;
+  }
+  #selection-bar .selection-head strong {
+    font-size: 12px;
+  }
+  #selection-count {
+    font-size: 10px;
+    margin-left: 4px;
+  }
+  #selection-bar #selection-dock {
+    display: none;
+  }
+  #selection-bar .selection-body {
+    padding: 10px;
+  }
+  #selection-compose {
+    gap: 6px;
+  }
+  #selection-mode button {
+    font-size: 11px;
+    padding-inline: 5px;
+  }
+}

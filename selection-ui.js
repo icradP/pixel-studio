@@ -3,7 +3,7 @@ import { animateSurface } from './motion.js';
 import { rectangleMask, maskBounds } from './plugin-core.js';
 import {
   combineSelection,
-  wandSelection,
+  createWandSampler,
   ellipseMask,
   polygonMask,
   initialTransform,
@@ -11,30 +11,50 @@ import {
   transformHandles,
 } from './selection.js';
 import { composite, rgba } from './engine.js';
+import { createRenderScheduler } from './render-scheduler.js';
+import { createSelectionHistory } from './selection-history.js';
+import { updateRanges } from './controls.js';
 
 export function createSelectionController(host) {
   let lastWand = null,
     edit = null,
     gesture = null,
-    mode = 'replace',
+    mode = 'add',
     tolerance = 20,
     contiguous = true,
     sampleMerged = false,
     uniform = true,
-    snapAngle = false;
+    snapAngle = false,
+    maskOpacity = 0.45,
+    rangeEdit = null,
+    context = null;
   const bar = document.createElement('section');
   bar.id = 'selection-bar';
   bar.setAttribute('aria-label', '选区操作');
   bar.setAttribute('role', 'dialog');
   bar.hidden = true;
-  bar.innerHTML = `<div class="selection-row"><strong id="selection-caption">选择</strong><button data-select-tool="wand">自动 · 魔棒</button><button data-select-tool="lasso">手绘</button><button data-select-tool="select">矩形</button><button data-select-tool="ellipse-select">椭圆</button><select id="selection-mode" aria-label="选区组合"><option value="replace">替换选区</option><option value="add">添加选区</option><option value="subtract">减去选区</option></select><button id="selection-transform">移动与变换</button><button id="selection-clear">清除</button></div><div id="selection-actions" class="selection-row"><button id="selection-invert">反转</button><button id="selection-copy">拷贝并变换</button><button id="selection-fill">颜色填充</button><button id="selection-store">存储选区</button><button id="selection-load">加载选区</button></div><div id="wand-options" class="selection-row"><label>容差 <input id="wand-tolerance" type="range" min="0" max="100" value="20"><output id="wand-tolerance-value">20%</output></label><label><input id="wand-contiguous" type="checkbox" checked>相邻区域</label><label><input id="wand-merged" type="checkbox">参考可见图层</label></div><div id="transform-options"><div class="selection-row"><label>X<input id="transform-x" type="number" min="-1024" max="1024"></label><label>Y<input id="transform-y" type="number" min="-1024" max="1024"></label><label>宽<input id="transform-width" type="number" min="1" max="1024"></label><label>高<input id="transform-height" type="number" min="1" max="1024"></label><label>角度<input id="transform-angle" type="number" min="-360" max="360"></label><label class="selection-check"><input id="transform-uniform" type="checkbox" checked>等比</label><label class="selection-check"><input id="transform-snap" type="checkbox">15° 吸附</label></div><div class="selection-row"><button id="transform-copy" aria-pressed="false">复制变换</button><button id="transform-flip-x">水平翻转</button><button id="transform-flip-y">垂直翻转</button><button id="transform-cancel">取消变换</button><button id="transform-apply" class="primary">应用变换</button><span class="selection-hint">拖选区移动 · 拖角点缩放 · 拖圆柄旋转</span></div></div>`;
+  bar.innerHTML = `<div id="selection-tools" class="segment" role="group" aria-label="选区方式"><button data-select-tool="wand">自动</button><button data-select-tool="lasso">手绘</button><button data-select-tool="select">矩形</button><button data-select-tool="ellipse-select">椭圆</button></div><div id="selection-compose"><div id="selection-mode" class="segment" role="group" aria-label="选区组合"><button data-select-mode="replace">新选区</button><button data-select-mode="add">＋ 添加</button><button data-select-mode="subtract">− 移除</button></div><div class="selection-history"><button id="selection-undo" aria-label="撤销选区操作" title="撤销选区操作">↶</button><button id="selection-redo" aria-label="重做选区操作" title="重做选区操作">↷</button></div></div><div id="wand-options"><label class="wand-threshold" for="wand-tolerance"><span>选区阈值</span><output id="wand-tolerance-value" for="wand-tolerance">20%</output><input id="wand-tolerance" aria-label="选区阈值" type="range" min="0" max="100" value="20"></label><button id="wand-settings-toggle" aria-expanded="false" aria-controls="wand-settings">取样与显示</button></div><div id="wand-settings" hidden><label class="switch">仅相邻区域<input id="wand-contiguous" type="checkbox" checked></label><label class="switch">参考所有可见图层<input id="wand-merged" type="checkbox"></label><label class="wand-threshold" for="selection-opacity"><span>选区外遮罩</span><output id="selection-opacity-value" for="selection-opacity">45%</output><input id="selection-opacity" aria-label="选区外遮罩" type="range" min="10" max="80" value="45"></label><p>关闭「仅相邻区域」可选择画布上所有同色像素；默认只取样当前图层。</p></div><p id="selection-instruction"></p><div id="selection-actions" class="selection-row"><button id="selection-transform">移动与变换</button><button id="selection-fill">填充</button><button id="selection-invert">反选</button><button id="selection-copy">拷贝变换</button><button id="selection-store">存储</button><button id="selection-load">加载</button><button id="selection-clear">清除</button></div><div id="transform-options"><div class="selection-row"><label>X<input id="transform-x" type="number" min="-1024" max="1024"></label><label>Y<input id="transform-y" type="number" min="-1024" max="1024"></label><label>宽<input id="transform-width" type="number" min="1" max="1024"></label><label>高<input id="transform-height" type="number" min="1" max="1024"></label><label>角度<input id="transform-angle" type="number" min="-360" max="360"></label><label class="selection-check"><input id="transform-uniform" type="checkbox" checked>等比</label><label class="selection-check"><input id="transform-snap" type="checkbox">15° 吸附</label></div><div class="selection-row"><button id="transform-copy" aria-pressed="false">复制变换</button><button id="transform-flip-x">水平翻转</button><button id="transform-flip-y">垂直翻转</button><button id="transform-cancel">取消变换</button><button id="transform-apply" class="primary">应用变换</button><span class="selection-hint">拖选区移动 · 拖角点缩放 · 拖圆柄旋转</span></div></div>`;
   const contents = bar.innerHTML;
   bar.innerHTML =
-    '<header class="selection-head"><strong>选区工具</strong><button id="selection-dock" aria-label="自动排列选区工具" title="自动排列">⊞</button><button id="selection-collapse" aria-label="收起或展开选区工具" aria-expanded="true">−</button><button id="selection-dismiss" aria-label="隐藏选区工具">×</button></header><div class="selection-body">' +
+    '<header class="selection-head"><strong id="selection-caption">选区工具</strong><span id="selection-count">未选择</span><button id="selection-done" class="primary">完成</button><button id="selection-dock" aria-label="自动排列选区工具" title="自动排列">⊞</button><button id="selection-collapse" aria-label="收起或展开选区工具" aria-expanded="true">−</button><button id="selection-dismiss" aria-label="隐藏选区工具">×</button></header><div class="selection-body">' +
     contents +
     '</div>';
   document.body.append(bar);
   const q = (s) => bar.querySelector(s);
+  q('#wand-settings').prepend(q('#wand-options .wand-threshold'));
+  q('#wand-settings-toggle').innerHTML =
+    '阈值 <span id="wand-summary">20%</span> · <span id="wand-source">当前层</span>';
+  q('#selection-compose').append(q('#wand-options'));
+  const history = createSelectionHistory();
+  const isSelecting = () => ['select', 'wand', 'lasso', 'ellipse-select'].includes(host.tool());
+  const wandJob = createRenderScheduler(resampleWand);
+  const hud = document.createElement('div');
+  hud.id = 'selection-threshold-hud';
+  hud.hidden = true;
+  hud.setAttribute('aria-hidden', 'true');
+  hud.innerHTML =
+    '<span>选区阈值</span><strong>20%</strong><i></i><small>向左减少 · 向右增加</small>';
+  document.body.append(hud);
   q('#selection-dismiss').innerHTML = closeIcon;
   let hiddenByUser = false,
     wasVisible = false,
@@ -62,6 +82,11 @@ export function createSelectionController(host) {
     document.body.style.removeProperty('--floating-bottom-reserve');
   }
   q('#selection-dismiss').onclick = hide;
+  q('#selection-done').onclick = () => {
+    finish(true);
+    host.selectTool('pencil');
+    hide();
+  };
   // A wide canvas uses the free space between palettes. Narrow screens reserve
   // a bottom shelf so palette footers and selection actions stay reachable.
   function dock() {
@@ -89,14 +114,14 @@ export function createSelectionController(host) {
     const best = gaps.sort((a, b) => b[1] - b[0] - (a[1] - a[0]))[0] || [left, left],
       shelf = best[1] - best[0] < 340,
       area = shelf ? [left, right] : best,
-      width = Math.min(bar.classList.contains('float-collapsed') ? 230 : 760, area[1] - area[0]);
+      width = Math.min(bar.classList.contains('float-collapsed') ? 230 : 700, area[1] - area[0]);
     bar.style.width = width + 'px';
     bar.style.left = area[0] + (area[1] - area[0] - width) / 2 + 'px';
     bar.style.setProperty(
       '--window-available-height',
       Math.max(120, Math.min(stage.height - 24, innerHeight * 0.48)) + 'px',
     );
-    const top = Math.max(80, stage.bottom - bar.offsetHeight - 12);
+    const top = Math.max(80, innerHeight - bar.offsetHeight - 12);
     bar.style.top = top + 'px';
     bar.style.bottom = 'auto';
     if (shelf)
@@ -123,8 +148,69 @@ export function createSelectionController(host) {
   const snapshot = () => host.snapshot(),
     hasMask = () => !!maskBounds(host.selection(), snapshot().project.w, snapshot().project.h);
   const setMask = (mask) => {
-    host.setSelection(mask);
+    host.setSelection(mask?.some(Boolean) ? mask : null);
   };
+  function wandState() {
+    return lastWand
+      ? {
+          context: lastWand.context,
+          p: lastWand.p,
+          before: lastWand.before,
+          mode: lastWand.mode,
+          tolerance,
+          contiguous,
+          sampleMerged,
+        }
+      : null;
+  }
+  function remember(before, beforeWand = null) {
+    history.checkpoint(before, host.selection(), { beforeWand });
+  }
+  function changeMask(mask) {
+    finishAdjustment();
+    const before = host.selection(),
+      beforeWand = wandState();
+    lastWand = null;
+    setMask(mask);
+    remember(before, beforeWand);
+    update();
+    host.render();
+  }
+  function selectionHistory(direction) {
+    finishAdjustment();
+    wandJob.cancel();
+    if (gesture || edit) return;
+    const restored = history[direction](host.selection(), wandState());
+    if (restored) {
+      lastWand = restored.wand;
+      if (lastWand) {
+        ({ tolerance, contiguous, sampleMerged, mode } = lastWand);
+        q('#wand-contiguous').checked = contiguous;
+        q('#wand-merged').checked = sampleMerged;
+        prepareWand();
+        lastWand.region = lastWand.sample(tolerance);
+        thresholdFeedback();
+      }
+      setMask(restored.mask);
+      update();
+      host.render();
+    }
+  }
+  function thresholdFeedback(show = false) {
+    q('#wand-tolerance').value = tolerance;
+    q('#wand-tolerance-value').textContent = tolerance + '%';
+    q('#wand-summary').textContent = tolerance + '%';
+    updateRanges(bar);
+    hud.hidden = !show;
+    hud.querySelector('strong').textContent = tolerance + '%';
+    hud.style.setProperty('--threshold', tolerance + '%');
+  }
+  function finishAdjustment() {
+    if (!rangeEdit) return;
+    wandJob.flush();
+    remember(rangeEdit.before, rangeEdit.wand);
+    rangeEdit = null;
+  }
   function fields() {
     if (!edit) return;
     const t = edit.t;
@@ -136,6 +222,15 @@ export function createSelectionController(host) {
     q('#transform-copy').setAttribute('aria-pressed', t.copy);
   }
   function update() {
+    const nextContext = snapshot().context;
+    if (context !== nextContext) {
+      context = nextContext;
+      history.clear();
+      lastWand = null;
+      rangeEdit = null;
+      wandJob.cancel();
+      hud.hidden = true;
+    }
     if (edit && edit.context !== snapshot().context) {
       edit = null;
       gesture = null;
@@ -157,15 +252,51 @@ export function createSelectionController(host) {
     q('#wand-options').hidden = tool !== 'wand' || !!edit;
     q('#transform-options').hidden = !edit;
     q('#selection-actions').hidden = !!edit;
-    q('#selection-mode').hidden = !!edit;
-    q('#selection-transform').hidden = !!edit;
+    q('#selection-compose').hidden = !!edit;
+    q('#selection-tools').hidden = !!edit;
+    q('#wand-settings').hidden =
+      !!edit ||
+      tool !== 'wand' ||
+      q('#wand-settings-toggle').getAttribute('aria-expanded') !== 'true';
+    q('#selection-instruction').hidden = !!edit;
     q('#selection-transform').disabled = !selected;
-    q('#selection-caption').textContent = edit ? '变换' : selected ? '已选择' : '选择';
+    for (const id of ['selection-copy', 'selection-fill', 'selection-store', 'selection-clear'])
+      q('#' + id).disabled = !selected;
+    q('#selection-invert').textContent = selected ? '反选' : '全选';
+    const count = host.selection()?.reduce((sum, n) => sum + n, 0) || 0;
+    q('#selection-count').textContent = selected ? count.toLocaleString() + ' 像素' : '未选择';
+    q('#selection-count').dataset.pixels = count;
+    q('#wand-source').textContent = sampleMerged ? '可见层' : '当前层';
+    q('#wand-settings-toggle').title = sampleMerged
+      ? '阈值与取样设置：所有可见图层'
+      : '阈值与取样设置：' + snapshot().project.layers[snapshot().layer].name;
+    q('#selection-caption').textContent = edit
+      ? '变换选区'
+      : tool === 'wand'
+        ? '自动选区'
+        : '选区工具';
+    q('#selection-instruction').textContent =
+      tool === 'wand'
+        ? (mode === 'subtract'
+            ? '轻点移除区域'
+            : mode === 'replace'
+              ? '轻点创建新选区'
+              : '连续轻点添加区域') + ' · 按住左右拖动调整阈值'
+        : '拖动画布创建选区 · 完成后可在选区内绘画';
+    bar.querySelectorAll('[data-select-mode]').forEach((button) => {
+      const active = button.dataset.selectMode === mode;
+      button.setAttribute('aria-pressed', String(active));
+      button.classList.toggle('active', active);
+    });
+    q('#selection-undo').disabled = !history.canUndo || !!gesture;
+    q('#selection-redo').disabled = !history.canRedo || !!gesture;
+    host.historyChanged?.();
     bar.classList.toggle('transforming', !!edit);
     document.body.classList.toggle('selection-open', !bar.hidden);
-    bar
-      .querySelectorAll('[data-select-tool]')
-      .forEach((b) => b.setAttribute('aria-pressed', b.dataset.selectTool === tool));
+    bar.querySelectorAll('[data-select-tool]').forEach((b) => {
+      b.setAttribute('aria-pressed', b.dataset.selectTool === tool);
+      b.classList.toggle('active', b.dataset.selectTool === tool);
+    });
     fields();
     if (bar.hidden) document.body.style.removeProperty('--floating-bottom-reserve');
     else scheduleDock();
@@ -178,12 +309,18 @@ export function createSelectionController(host) {
     host.render();
   }
   function start() {
+    finishAdjustment();
+    lastWand = null;
     const s = snapshot(),
       p = s.project,
       mask = host.selection(),
       t = initialTransform(mask, p.w, p.h);
     if (!t) {
       host.toast('先框选或用魔棒选择像素');
+      return false;
+    }
+    if (host.canEdit && !host.canEdit()) {
+      host.toast('请选择未锁定的像素图层再变换');
       return false;
     }
     if (!p.layers[s.layer].visible) {
@@ -213,6 +350,7 @@ export function createSelectionController(host) {
     host.render();
   }
   function begin(e, p, tool) {
+    finishAdjustment();
     if (edit) {
       const t = edit.t,
         scale = host.scale(),
@@ -258,19 +396,22 @@ export function createSelectionController(host) {
       points: [p],
       start: { x: Math.floor(p.x), y: Math.floor(p.y) },
       before: host.selection() ? new Uint8Array(host.selection()) : null,
+      beforeWand: wandState(),
     };
     if (tool === 'wand') {
-      lastWand = { context: s.context, p: { ...p }, before: gesture.before };
-      const pixels = sampleMerged
-        ? composite(s.project, s.frame)
-        : s.project.frames[s.frame].cels[s.layer];
-      setMask(
-        combineSelection(
-          gesture.before,
-          wandSelection(pixels, w, h, p.x, p.y, { tolerance, contiguous }),
-          mode,
-        ),
-      );
+      gesture.previousWand = lastWand ? { ...lastWand } : null;
+      gesture.threshold = tolerance;
+      gesture.clientX = e.clientX;
+      const index = Math.floor(p.y) * w + Math.floor(p.x);
+      if (!(
+        lastWand?.context === s.context &&
+        lastWand.mode === mode &&
+        lastWand.region?.[index]
+      )) {
+        lastWand = { context: s.context, p: { ...p }, before: gesture.before, mode };
+        prepareWand();
+      }
+      resampleWand();
     } else
       setMask(
         combineSelection(
@@ -308,7 +449,19 @@ export function createSelectionController(host) {
       host.render();
       return;
     }
-    if (g.kind === 'wand' || !edit) return;
+    if (g.kind === 'wand') {
+      const dx = e.clientX - g.clientX;
+      if (!g.scrubbing && Math.abs(dx) < 6) return;
+      g.scrubbing = true;
+      const value = Math.max(0, Math.min(100, Math.round(g.threshold + dx / 3)));
+      if (value !== tolerance) {
+        tolerance = value;
+        wandJob.request();
+      }
+      thresholdFeedback(true);
+      return;
+    }
+    if (!edit) return;
     if (g.kind === 'move') {
       edit.t = {
         ...g.t,
@@ -358,6 +511,15 @@ export function createSelectionController(host) {
   }
   function end(cancel = false) {
     if (!gesture) return;
+    if (cancel) wandJob.cancel();
+    else wandJob.flush();
+    if (gesture.kind === 'wand') {
+      if (cancel) {
+        tolerance = gesture.threshold;
+        lastWand = gesture.previousWand;
+      }
+      thresholdFeedback(false);
+    }
     if (edit) {
       if (cancel) {
         edit.t = gesture.t;
@@ -365,6 +527,7 @@ export function createSelectionController(host) {
         preview();
       }
     } else if (cancel) setMask(gesture.before);
+    else remember(gesture.before, gesture.beforeWand);
     gesture = null;
     update();
     host.render();
@@ -399,49 +562,82 @@ export function createSelectionController(host) {
   bar.querySelectorAll('[data-select-tool]').forEach(
     (b) =>
       (b.onclick = () => {
+        finishAdjustment();
+        lastWand = null;
         finish(false);
         host.selectTool(b.dataset.selectTool);
         update();
       }),
   );
-  q('#selection-mode').onchange = (e) => (mode = e.target.value);
+  bar.querySelectorAll('[data-select-mode]').forEach((button) => {
+    button.onclick = () => {
+      finishAdjustment();
+      mode = button.dataset.selectMode;
+      lastWand = null;
+      update();
+    };
+  });
+  q('#selection-undo').onclick = () => selectionHistory('undo');
+  q('#selection-redo').onclick = () => selectionHistory('redo');
   q('#selection-clear').onclick = () => {
-    lastWand = null;
     finish(false);
-    setMask(null);
-    update();
-    host.render();
+    changeMask(null);
   };
   q('#selection-transform').onclick = start;
   q('#transform-cancel').onclick = () => finish(false);
   q('#transform-apply').onclick = () => finish(true);
+  q('#wand-settings-toggle').onclick = () => {
+    const button = q('#wand-settings-toggle');
+    button.setAttribute('aria-expanded', String(button.getAttribute('aria-expanded') !== 'true'));
+    update();
+  };
+  function prepareWand() {
+    if (!lastWand) return;
+    const s = snapshot(),
+      p = s.project;
+    const pixels = sampleMerged ? composite(p, s.frame) : p.frames[s.frame].cels[s.layer];
+    lastWand.sample = createWandSampler(pixels, p.w, p.h, lastWand.p.x, lastWand.p.y, {
+      contiguous,
+    });
+  }
   function resampleWand() {
-    const s = snapshot();
-    if (!lastWand || edit || lastWand.context !== s.context || host.tool() !== 'wand') return;
-    const p = s.project,
-      pixels = sampleMerged ? composite(p, s.frame) : p.frames[s.frame].cels[s.layer];
-    setMask(
-      combineSelection(
-        lastWand.before,
-        wandSelection(pixels, p.w, p.h, lastWand.p.x, lastWand.p.y, { tolerance, contiguous }),
-        mode,
-      ),
-    );
+    if (!lastWand || edit || lastWand.context !== snapshot().context || host.tool() !== 'wand')
+      return;
+    lastWand.region = lastWand.sample(tolerance);
+    setMask(combineSelection(lastWand.before, lastWand.region, lastWand.mode));
     update();
     host.render();
   }
   q('#wand-tolerance').oninput = (e) => {
+    rangeEdit ||= { before: host.selection(), wand: wandState() };
     tolerance = Number(e.target.value);
-    q('#wand-tolerance-value').textContent = tolerance + '%';
-    resampleWand();
+    thresholdFeedback();
+    wandJob.request();
   };
-  q('#wand-contiguous').onchange = (e) => {
-    contiguous = e.target.checked;
-    resampleWand();
+  q('#wand-tolerance').onchange = () => {
+    finishAdjustment();
+    update();
   };
-  q('#wand-merged').onchange = (e) => {
-    sampleMerged = e.target.checked;
-    resampleWand();
+  q('#wand-tolerance').onblur = () => {
+    finishAdjustment();
+    update();
+  };
+  for (const name of ['contiguous', 'merged'])
+    q('#wand-' + name).onchange = (event) => {
+      finishAdjustment();
+      const before = host.selection(),
+        beforeWand = wandState();
+      if (name === 'contiguous') contiguous = event.target.checked;
+      else sampleMerged = event.target.checked;
+      prepareWand();
+      resampleWand();
+      remember(before, beforeWand);
+      update();
+    };
+  q('#selection-opacity').oninput = (event) => {
+    maskOpacity = Number(event.target.value) / 100;
+    q('#selection-opacity-value').textContent = event.target.value + '%';
+    host.render();
   };
   q('#transform-uniform').onchange = (e) => (uniform = e.target.checked);
   q('#transform-snap').onchange = (e) => (snapAngle = e.target.checked);
@@ -480,9 +676,7 @@ export function createSelectionController(host) {
   q('#selection-invert').onclick = () => {
     const p = snapshot().project,
       mask = host.selection() || new Uint8Array(p.w * p.h);
-    setMask(Uint8Array.from(mask, (v) => (v ? 0 : 1)));
-    update();
-    host.render();
+    changeMask(Uint8Array.from(mask, (v) => (v ? 0 : 1)));
   };
   q('#selection-copy').onclick = () => {
     if (start()) {
@@ -521,23 +715,46 @@ export function createSelectionController(host) {
         p = snapshot().project;
       if (!saved || saved.w !== p.w || saved.h !== p.h || saved.mask.length !== p.w * p.h)
         throw Error();
-      setMask(Uint8Array.from(saved.mask, (v) => (v === '1' ? 1 : 0)));
-      update();
-      host.render();
+      changeMask(Uint8Array.from(saved.mask, (v) => (v === '1' ? 1 : 0)));
     } catch {
       host.toast('没有与当前画布尺寸一致的已存选区');
     }
   };
   return {
     toggle() {
-      if (!bar.hidden && !hiddenByUser && !bar.classList.contains('float-collapsed')) hide();
-      else this.show();
+      if (!bar.hidden && !hiddenByUser && !bar.classList.contains('float-collapsed')) {
+        finish(false);
+        changeMask(null);
+        host.selectTool('pencil');
+        hide();
+      } else this.show();
     },
     show() {
       hiddenByUser = false;
       float.collapse(false);
       update();
       float.raise();
+    },
+    leave() {
+      finishAdjustment();
+      wandJob.cancel();
+      lastWand = null;
+      hud.hidden = true;
+      hide();
+    },
+    undo: () => selectionHistory('undo'),
+    redo: () => selectionHistory('redo'),
+    get editingSelection() {
+      return isSelecting() && !edit;
+    },
+    get canUndo() {
+      return history.canUndo;
+    },
+    get canRedo() {
+      return history.canRedo;
+    },
+    get maskOpacity() {
+      return maskOpacity;
     },
     begin,
     move,
@@ -554,15 +771,12 @@ export function createSelectionController(host) {
     },
     clear() {
       finish(false);
-      setMask(null);
-      update();
+      changeMask(null);
     },
     escape() {
       if (edit) finish(false);
       else {
-        setMask(null);
-        update();
-        host.render();
+        changeMask(null);
       }
     },
   };
