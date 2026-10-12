@@ -1,3 +1,4 @@
+import { pressureResponse } from './paint.js';
 import { BRUSH_GROUPS, MAGIC_MODES, brushHint, stampBrush, mixStrokeOpacity } from './brushes.js';
 import { rgba, line } from './engine.js';
 import { magicPixels } from './plugin-core.js';
@@ -27,7 +28,7 @@ function seed(w, h, brush) {
   }
   return pixels;
 }
-function applySample(base, pixels, mask, w, h, brush, color, palette) {
+function applySample(base, pixels, mask, w, h, brush, color, palette, coverage = null) {
   if (!brush.magic.enabled) return pixels;
   if (['select', 'select-erase', 'lift', 'merge'].includes(brush.magic.mode)) {
     const out = new Uint8ClampedArray(base);
@@ -38,6 +39,7 @@ function applySample(base, pixels, mask, w, h, brush, color, palette) {
     base,
     magicPixels(base, w, h, mask, brush.magic, color, palette),
     brush.opacity,
+    brush.opacityPressure ? coverage : null,
   );
 }
 function paint(canvas, pixels) {
@@ -168,7 +170,7 @@ export function createBrushPanel(root, host, initialGroup) {
     root.classList.add('brush-studio-view');
     const b = current();
     const original = structuredClone(b);
-    root.innerHTML = `<div class="brush-studio-head"><button id="brush-back">‹ 笔刷库</button><strong id="brush-studio-name">${esc(b.name)}</strong><button id="brush-cancel">取消</button><button id="brush-done" class="primary">完成</button></div><div class="brush-pad-head"><span>试画板</span><button id="brush-pad-reset">重置笔迹</button></div><canvas id="brush-pad" width="288" height="110" aria-label="笔刷试画板"></canvas><p id="brush-hint" class="help"></p><section class="brush-section"><h3>笔触</h3>${range('size-range', '笔刷大小', 1, 32, b.size, ' px')}${range('brush-opacity', '不透明度', 1, 100, b.opacity, '%')}<label>笔尖形状<select id="brush-shape"><option value="square">方形 · 硬边像素</option><option value="round">圆形 · 硬边像素</option><option value="custom">自定义 · 8 × 8 笔尖</option></select></label>${check('pressure', '笔压控制大小', b.pressure)}<div id="brush-custom" ${b.shape !== 'custom' ? 'hidden' : ''}><div class="brush-grid">${b.mask.map((v, i) => `<button type="button" data-mask="${i}" aria-label="笔尖像素 ${i + 1}" aria-pressed="${!!v}" class="${v ? 'on' : ''}"></button>`).join('')}</div><div class="brush-chips"><button id="mask-square">实心</button><button id="mask-cross">十字</button><button id="mask-clear">清空</button></div><small class="help">轻点格子绘制笔尖，空白笔尖不会留下笔迹。</small></div></section><section class="brush-section"><h3>纹理与抖色</h3>${check('dither-enabled', '抖动绘制', b.dither.enabled)}<div id="dither-options" ${!b.dither.enabled ? 'hidden' : ''}><label>抖色纹理<select id="dither-pattern"><option value="bayer">有序点阵 · Bayer 4×4</option><option value="diagonal">斜线纹理</option></select></label>${range('dither-density', '点阵密度', 1, 16, b.dither.density)}${range('dither-scale', '纹理格子', 1, 4, b.dither.scale, ' px')}${check('dither-invert', '反转点阵', b.dither.invert)}${check('dither-secondary', '双色抖色', b.dither.secondary)}<label id="dither-color-row" class="brush-color-row">第二颜色<input id="dither-color" type="color" value="${b.dither.secondaryColor}"></label><p class="help">关闭双色时，点阵间隙保留原有像素。魔法效果仅使用前景点阵作为作用范围。</p></div></section><section class="brush-section"><h3>Magic Pencil</h3>${check('magic-enabled', '魔法效果', b.magic.enabled)}<div id="magic-options" ${!b.magic.enabled ? 'hidden' : ''}><label>笔刷效果<select id="magic-mode">${MAGIC_MODES.map(([id, title]) => `<option value="${id}">${title}</option>`).join('')}</select></label><label class="brush-color-row">描边颜色<input id="magic-outline" type="color" value="${b.magic.outline}"></label>${range('magic-strength', '效果强度', 1, 100, Math.round(b.magic.strength * 100), '%')}${check('magic-negative', '降低 / 反向', b.magic.negative)}${check('magic-proportional', '按像素数量加权混色', b.magic.proportional)}${check('magic-indexed', '贴合当前色板', b.magic.indexed)}<p class="help">试画板中的蓝色标记表示选择或提取范围；实际选区、图层操作会在画布抬笔后执行。</p></div></section><section class="brush-section brush-manage"><button id="brush-copy" class="panel-wide">保存为新笔刷 <span>＋</span></button>${b.group === 'user' ? '<button id="brush-rename" class="panel-wide">重命名笔刷</button><button id="brush-delete" class="panel-wide danger">删除这支笔刷</button>' : '<button id="brush-reset" class="panel-wide">还原此笔刷默认设置</button>'}<small>每支笔刷单独记忆参数，保存在此设备。</small></section>`;
+    root.innerHTML = `<div class="brush-studio-head"><button id="brush-back">‹ 笔刷库</button><strong id="brush-studio-name">${esc(b.name)}</strong><button id="brush-cancel">取消</button><button id="brush-done" class="primary">完成</button></div><div class="brush-pad-head"><span>试画板</span><button id="brush-pad-reset">重置笔迹</button></div><canvas id="brush-pad" width="288" height="110" aria-label="笔刷试画板"></canvas><p id="brush-hint" class="help"></p><section class="brush-section"><h3>笔触</h3>${range('size-range', '笔刷大小', 1, 32, b.size, ' px')}${range('brush-opacity', '不透明度', 1, 100, b.opacity, '%')}<label>笔尖形状<select id="brush-shape"><option value="square">方形 · 硬边像素</option><option value="round">圆形 · 硬边像素</option><option value="custom">自定义 · 8 × 8 笔尖</option></select></label>${check('pressure', '笔压控制大小', b.pressure)}${check('opacity-pressure', '笔压控制不透明度', b.opacityPressure)}<details class="pressure-settings"><summary>压感曲线</summary><svg id="pressure-graph" viewBox="0 0 240 120" aria-label="压感响应曲线" role="img"></svg><div class="brush-chips"><button data-curve="soft">轻触敏感</button><button data-curve="linear">线性</button><button data-curve="firm">重压渐进</button></div>${[1, 2, 3].map((i) => range('pressure-point-' + i, '输入 ' + i * 25 + '% 的响应', 0, 100, Math.round(b.pressureCurve[i] * 100), '%')).join('')}<p class="help">曲线作用于开启的大小和不透明度笔压。关闭笔压不透明度后使用固定值；同一笔重叠不会反复加深。</p></details><div id="brush-custom" ${b.shape !== 'custom' ? 'hidden' : ''}><div class="brush-grid">${b.mask.map((v, i) => `<button type="button" data-mask="${i}" aria-label="笔尖像素 ${i + 1}" aria-pressed="${!!v}" class="${v ? 'on' : ''}"></button>`).join('')}</div><div class="brush-chips"><button id="mask-square">实心</button><button id="mask-cross">十字</button><button id="mask-clear">清空</button></div><small class="help">轻点格子绘制笔尖，空白笔尖不会留下笔迹。</small></div></section><section class="brush-section"><h3>纹理与抖色</h3>${check('dither-enabled', '抖动绘制', b.dither.enabled)}<div id="dither-options" ${!b.dither.enabled ? 'hidden' : ''}><label>抖色纹理<select id="dither-pattern"><option value="bayer">有序点阵 · Bayer 4×4</option><option value="diagonal">斜线纹理</option></select></label>${range('dither-density', '点阵密度', 1, 16, b.dither.density)}${range('dither-scale', '纹理格子', 1, 4, b.dither.scale, ' px')}${check('dither-invert', '反转点阵', b.dither.invert)}${check('dither-secondary', '双色抖色', b.dither.secondary)}<label id="dither-color-row" class="brush-color-row">第二颜色<input id="dither-color" type="color" value="${b.dither.secondaryColor}"></label><p class="help">关闭双色时，点阵间隙保留原有像素。魔法效果仅使用前景点阵作为作用范围。</p></div></section><section class="brush-section"><h3>Magic Pencil</h3>${check('magic-enabled', '魔法效果', b.magic.enabled)}<div id="magic-options" ${!b.magic.enabled ? 'hidden' : ''}><label>笔刷效果<select id="magic-mode">${MAGIC_MODES.map(([id, title]) => `<option value="${id}">${title}</option>`).join('')}</select></label><label class="brush-color-row">描边颜色<input id="magic-outline" type="color" value="${b.magic.outline}"></label>${range('magic-strength', '效果强度', 1, 100, Math.round(b.magic.strength * 100), '%')}${check('magic-negative', '降低 / 反向', b.magic.negative)}${check('magic-proportional', '按像素数量加权混色', b.magic.proportional)}${check('magic-indexed', '贴合当前色板', b.magic.indexed)}<p class="help">试画板中的蓝色标记表示选择或提取范围；实际选区、图层操作会在画布抬笔后执行。</p></div></section><section class="brush-section brush-manage"><button id="brush-copy" class="panel-wide">保存为新笔刷 <span>＋</span></button>${b.group === 'user' ? '<button id="brush-rename" class="panel-wide">重命名笔刷</button><button id="brush-delete" class="panel-wide danger">删除这支笔刷</button>' : '<button id="brush-reset" class="panel-wide">还原此笔刷默认设置</button>'}<small>每支笔刷单独记忆参数，保存在此设备。</small></section>`;
     const sections = [...root.querySelectorAll('.brush-section')];
     const preview = document.createElement('div');
     preview.className = 'brush-studio-preview';
@@ -258,6 +260,25 @@ export function createBrushPanel(root, host, initialGroup) {
       q('#brush-custom').hidden = current().shape !== 'custom';
     };
     q('#pressure').onchange = (event) => patch({ pressure: event.target.checked });
+    q('#opacity-pressure').onchange = (event) => patch({ opacityPressure: event.target.checked });
+    for (let i = 1; i < 4; i++)
+      bindRange('pressure-point-' + i, (value) => {
+        const curve = [...current().pressureCurve];
+        curve[i] = Math.max(curve[i - 1], Math.min(curve[i + 1], value / 100));
+        return { pressureCurve: curve };
+      });
+    root.querySelectorAll('[data-curve]').forEach(
+      (button) =>
+        (button.onclick = () =>
+          patch({
+            pressureCurve:
+              button.dataset.curve === 'soft'
+                ? [0, 0.5, 0.75, 0.9, 1]
+                : button.dataset.curve === 'firm'
+                  ? [0, 0.08, 0.25, 0.55, 1]
+                  : [0, 0.25, 0.5, 0.75, 1],
+          })),
+    );
     for (const name of ['enabled', 'invert', 'secondary'])
       q('#dither-' + name).onchange = (event) => {
         patch({ dither: { [name]: event.target.checked } });
@@ -358,12 +379,22 @@ export function createBrushPanel(root, host, initialGroup) {
         b = tipBrush(current());
       const n =
         b.pressure && event.pointerType === 'pen'
-          ? Math.max(1, Math.round(b.size * (0.25 + 0.75 * (event.pressure || 0.5))))
+          ? Math.max(
+              1,
+              Math.round(
+                b.size * (0.25 + 0.75 * pressureResponse(event.pressure, b.pressureCurve)),
+              ),
+            )
           : b.size;
       line(scratch.last.x, scratch.last.y, p.x, p.y, (x, y) =>
         stampBrush({
           pixels: scratch.pixels,
           base: scratch.base,
+          coverage: scratch.coverage,
+          pressureFactor:
+            b.opacityPressure && event.pointerType === 'pen'
+              ? pressureResponse(event.pressure, b.pressureCurve)
+              : 1,
           w,
           h,
           x,
@@ -388,6 +419,7 @@ export function createBrushPanel(root, host, initialGroup) {
           b,
           host.color(),
           host.palette(),
+          scratch.coverage,
         ),
       );
     };
@@ -400,6 +432,7 @@ export function createBrushPanel(root, host, initialGroup) {
         id: event.pointerId,
         base,
         pixels: new Uint8ClampedArray(base),
+        coverage: new Uint8Array(w * h),
         mask: new Uint8Array(w * h),
         last: point(event),
       };
@@ -425,6 +458,12 @@ export function createBrushPanel(root, host, initialGroup) {
       host.mode?.() === 'eraser'
         ? '橡皮使用所选笔尖与抖色纹理；不透明度决定擦除程度。'
         : brushHint(b);
+    for (let i = 1; i < 4; i++)
+      q('#pressure-point-' + i).value = Math.round(b.pressureCurve[i] * 100);
+    q('#pressure-graph').innerHTML =
+      '<path d="M12 8V108H228 M12 108L228 8" fill="none" stroke="currentColor" opacity=".25"/><polyline points="' +
+      b.pressureCurve.map((v, i) => 12 + i * 54 + ',' + (108 - v * 100)).join(' ') +
+      '" fill="none" stroke="#67c6ff" stroke-width="3"/>';
     q('#size-range').value = b.size;
     q('#brush-opacity').value = b.opacity;
     q('#brush-opacity').disabled =

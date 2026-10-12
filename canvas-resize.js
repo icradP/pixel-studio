@@ -1,5 +1,5 @@
 import { LIMITS } from './limits.js';
-import { validate } from './engine.js';
+import { validate, cloneLayer } from './engine.js';
 
 // Percent describes the resulting canvas size; the anchor locates the untouched artwork.
 export function proportionalExpansion(project, percent, anchor = [0.5, 0.5]) {
@@ -59,7 +59,18 @@ export function expandCanvas(project, sides) {
     w: next.w,
     h: next.h,
     frames,
-    layers: project.layers.map((layer) => ({ ...layer })),
+    layers: project.layers.map((layer) => {
+      const nextLayer = cloneLayer(layer);
+      if (layer.mask) {
+        nextLayer.mask = new Uint8ClampedArray(next.w * next.h).fill(255);
+        for (let y = 0; y < project.h; y++)
+          nextLayer.mask.set(
+            layer.mask.subarray(y * project.w, (y + 1) * project.w),
+            (y + next.top) * next.w + next.left,
+          );
+      }
+      return nextLayer;
+    }),
     ...(project.tags ? { tags: project.tags.map((tag) => ({ ...tag })) } : {}),
   });
 }

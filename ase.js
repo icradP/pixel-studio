@@ -1,3 +1,4 @@
+import { prepareAse } from './layer-effects.js';
 import { LIMITS } from './limits.js';
 import { blank, validate, MAX_PIXELS } from './engine.js';
 class Reader {
@@ -97,10 +98,11 @@ export async function readAse(buffer) {
           opacity = r.u8();
         r.skip(3);
         const name = r.string();
-        if (![0, 1].includes(lt) || blend !== 0 || lf & 64)
-          throw Error('暂不支持瓦片、参考图层或特殊混合模式，请先转换为普通图层。');
+        if (![0, 1].includes(lt) || blend > 18 || lf & 64)
+          throw Error('暂不支持瓦片、参考图层或未知混合模式，请先转换为普通图层。');
         p.layers.push({
           name,
+          ...(blend ? { blend } : {}),
           visible: !!(lf & 1),
           opacity: (lt === 1 ? flags & 2 : flags & 1) ? opacity : 255,
           background: !!(lf & 8),
@@ -323,6 +325,8 @@ function chunk(type, data) {
 }
 export function writeAse(p) {
   validate(p);
+  p = prepareAse(p);
+  validate(p);
   const tags = [...(p.tags || [])].sort((a, b) => a.from - b.from || b.to - a.to);
   const frames = [];
   p.frames.forEach((f, fi) => {
@@ -334,7 +338,7 @@ export function writeAse(p) {
         x.u16(l.group ? 1 : 0);
         x.u16(l.level || 0);
         x.zeros(4);
-        x.u16(0);
+        x.u16(l.blend || 0);
         x.u8(l.opacity);
         x.zeros(3);
         x.string(l.name);

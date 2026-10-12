@@ -1,3 +1,4 @@
+import { normalizeCurve, paintPixel, paintMask } from './paint.js';
 // Brush settings and pixel coverage are shared by the canvas, library previews and tests.
 export const MAGIC_MODES = [
   ['outline-brush', '描边笔刷'],
@@ -30,6 +31,8 @@ export function normalizeBrush(value = {}, fallback = {}) {
     d = { ...fallback.dither, ...value.dither },
     m = { ...fallback.magic, ...value.magic };
   return {
+    opacityPressure: !!b.opacityPressure,
+    pressureCurve: normalizeCurve(b.pressureCurve),
     id: typeof b.id === 'string' ? b.id.slice(0, 100) : 'pixel-hard',
     name: typeof b.name === 'string' && b.name.trim() ? b.name.trim().slice(0, 40) : '像素铅笔',
     group: ['pixel', 'dither', 'magic', 'user'].includes(b.group) ? b.group : 'user',
@@ -148,6 +151,11 @@ export function stampBrush({
   mask = null,
   erase = false,
   base = pixels,
+  pressureFactor = 1,
+  coverage = null,
+  alphaLock = false,
+  layerMask = null,
+  baseLayerMask = layerMask,
 }) {
   const half = Math.floor(size / 2),
     dither = brush.dither;
@@ -170,29 +178,27 @@ export function stampBrush({
       if (selection && !selection[index]) continue;
       const foreground = !dither.enabled || ditherPixel(px, py, dither);
       if (!foreground && (!dither.secondary || mask || erase)) continue;
-      if (mask) mask[index] = 1;
-      else {
-        const offset = index * 4,
-          opacity = (brush.opacity ?? 100) / 100,
-          source = foreground ? color : secondary;
-        if (erase) {
-          pixels.set(base.subarray(offset, offset + 4), offset);
-          pixels[offset + 3] = Math.round(base[offset + 3] * (1 - opacity));
-          if (!pixels[offset + 3]) pixels.fill(0, offset, offset + 4);
-        } else {
-          if (opacity === 1 && source[3] === 255) {
-            pixels.set(source, offset);
-            continue;
-          }
-          const sa = (source[3] / 255) * opacity,
-            da = base[offset + 3] / 255,
-            alpha = sa + da * (1 - sa);
-          for (let c = 0; c < 3; c++)
-            pixels[offset + c] = alpha
-              ? Math.round((source[c] * sa + base[offset + c] * da * (1 - sa)) / alpha)
-              : 0;
-          pixels[offset + 3] = Math.round(alpha * 255);
-        }
+      if (mask) {
+        if (pressureFactor <= 0) continue;
+        mask[index] = 1;
+        if (coverage)
+          coverage[index] = Math.max(
+            coverage[index],
+            Math.round(((brush.opacity ?? 100) / 100) * pressureFactor * 255),
+          );
+      } else {
+        const source = foreground ? color : secondary;
+        const alpha = ((brush.opacity ?? 100) / 100) * pressureFactor * (source[3] / 255);
+        if (layerMask)
+          paintMask(
+            layerMask,
+            baseLayerMask,
+            index,
+            erase ? 255 : 0.3 * source[0] + 0.59 * source[1] + 0.11 * source[2],
+            alpha,
+            coverage,
+          );
+        else paintPixel(pixels, base, index, source, alpha, { erase, alphaLock, coverage });
       }
     }
 }
@@ -214,10 +220,13 @@ export function brushHint(brush) {
 }
 
 // Blend a completed effect with the stroke's starting pixels using premultiplied alpha.
-export function mixStrokeOpacity(base, result, opacity = 100) {
-  if (opacity >= 100) return result;
-  const t = Math.max(0, opacity) / 100;
+export function mixStrokeOpacity(base, result, opacity = 100, coverage = null) {
+  if (opacity >= 100 && !coverage) return result;
+  let peak = 0;
+  if (coverage) for (const value of coverage) peak = Math.max(peak, value);
   for (let i = 0; i < result.length; i += 4) {
+    // Generated outline pixels outside the tip inherit this stroke's peak pressure.
+    const t = coverage ? (coverage[i / 4] || peak) / 255 : Math.max(0, opacity) / 100;
     const a = base[i + 3] * (1 - t),
       b = result[i + 3] * t,
       alpha = a + b;
