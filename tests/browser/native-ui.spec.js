@@ -74,10 +74,10 @@ test('choice menus preserve form values, keyboard navigation and dismissal', asy
   await page.getByRole('option', { name: '自定义 · 8 × 8 笔尖', exact: true }).click();
   await expect(combo).toContainText('自定义');
   await combo.click();
-  await page.locator('#window-brush h2').click();
+  await page.locator('#brush-studio-name').click();
   await expect(page.locator('.choice-menu')).toHaveCount(0);
   await combo.click();
-  await page.locator('#window-brush .window-body').evaluate((body) => {
+  await page.locator('#brush-section-stroke').evaluate((body) => {
     body.scrollTop += 30;
   });
   await expect(page.locator('.choice-menu')).toHaveCount(0);

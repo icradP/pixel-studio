@@ -3,7 +3,16 @@ import { installControls, updateRanges } from './controls.js';
 import { openProjectStore } from './project-store.js';
 import { createHistory } from './history.js';
 import { createRenderScheduler } from './render-scheduler.js';
-import { BRUSH_PRESETS, createBrushLibrary, normalizeBrush, stampBrush } from './brushes.js';
+import {
+  BRUSH_PRESETS,
+  createBrushLibrary,
+  normalizeBrush,
+  stampBrush,
+  mixStrokeOpacity,
+} from './brushes.js';
+import { createToolBrushes } from './tool-brushes.js';
+import { duplicateLayer, reorderBeside } from './layer-actions.js';
+import { itemGestures } from './item-gestures.js';
 import { expandCanvas } from './canvas-resize.js';
 import { importKind } from './file-import.js';
 import { createToolWindows, dismissTopWindow } from './floating.js';
@@ -190,20 +199,26 @@ try {
   savedBrushLibrary = JSON.parse(localStorage.getItem('pixel-studio-brush-library') || 'null');
 } catch {}
 const brushLibrary = createBrushLibrary(savedBrushLibrary, { pressure, mask: customMask });
-const currentBrush = () => brushLibrary.brushes.find((brush) => brush.id === brushLibrary.active);
+const toolBrushes = createToolBrushes(brushLibrary, savedBrushLibrary?.eraser);
+const currentBrush = () => toolBrushes.current();
 function applyBrushSettings() {
   const brush = currentBrush();
   size = brush.size;
   pressure = brush.pressure;
   customMask = brush.mask;
-  magicConfig = { ...brush.magic };
+  magicConfig = { ...brush.magic, enabled: toolBrushes.mode !== 'eraser' && brush.magic.enabled };
   document.body.classList.toggle('magic-active', magicConfig.enabled);
+  $('#side-opacity').disabled =
+    magicConfig.enabled && ['select', 'select-erase', 'lift', 'merge'].includes(magicConfig.mode);
 }
 applyBrushSettings();
 function persistBrushes() {
   clearTimeout(brushSaveTimer);
   try {
-    localStorage.setItem('pixel-studio-brush-library', JSON.stringify(brushLibrary));
+    localStorage.setItem(
+      'pixel-studio-brush-library',
+      JSON.stringify({ ...brushLibrary, eraser: toolBrushes.state }),
+    );
   } catch {
     toast('笔刷库未能保存，请检查设备存储空间');
   }
@@ -211,19 +226,20 @@ function persistBrushes() {
 function selectBrush(brushId) {
   if (!brushLibrary.brushes.some((brush) => brush.id === brushId)) return;
   if (stroke) finishStroke(true);
-  brushLibrary.active = brushId;
+  toolBrushes.select(brushId);
   applyBrushSettings();
   persistBrushes();
-  chooseTool('pencil');
+  chooseTool(toolBrushes.mode);
 }
 function updateBrush(patch, persist = true) {
   if (stroke) finishStroke(true);
-  const index = brushLibrary.brushes.findIndex((brush) => brush.id === brushLibrary.active);
-  brushLibrary.brushes[index] = normalizeBrush(patch, currentBrush());
+  toolBrushes.update(patch);
   applyBrushSettings();
   $('#brush-size').textContent = size + ' px';
   $('#side-size').value = size;
   $('#side-size-value').textContent = size + ' px';
+  $('#side-opacity').value = currentBrush().opacity;
+  $('#side-opacity-value').textContent = currentBrush().opacity + '%';
   updateRanges(document.querySelector('.size-rail'));
   if (persist) persistBrushes();
   else {
@@ -597,15 +613,51 @@ function toolsBuild() {
       )
       .join('') +
     `<span class="tool-separator"></span><button id="color-button" aria-label="颜色面板" title="当前颜色"><span class="color-dot"></span></button><span class="tool-separator"></span><button id="tool-undo" aria-label="撤销">${svg('undo')}</button><button id="tool-redo" aria-label="重做">${svg('redo')}</button>`;
+  $('#painting-tools').prepend($('#tool-pencil'), $('#tool-eraser'));
+  $('#tool-pencil').setAttribute('aria-label', '笔刷设置');
+  $('#tool-pencil').title = '画笔 · 再次轻点打开笔刷库';
+  $('#tool-eraser').title = '橡皮擦 · 再次轻点打开笔刷库';
+  $('#editing-tools').append($('#tool-select'), $('#tool-wand'));
+  $('#side-modify').append($('#tool-pick'));
+  $('#side-history').append($('#tool-undo'), $('#tool-redo'));
+  $('#side-history').append($('#floatbar'));
   $$('[data-tool]').forEach(
     (b) =>
       (b.onclick = () => {
-        if (tool === b.dataset.tool && tool === 'pencil') openPanel('brush', b);
+        if (tool === b.dataset.tool && ['pencil', 'eraser'].includes(tool)) openPanel('brush', b);
         else if (tool === b.dataset.tool && ['select', 'wand'].includes(tool))
           selectionUI?.toggle();
         else chooseTool(b.dataset.tool);
       }),
   );
+  for (const button of [$('#tool-pencil'), $('#tool-eraser')]) {
+    let timer,
+      held = false;
+    button.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0 || tool === button.dataset.tool) return;
+      held = false;
+      timer = setTimeout(() => {
+        held = true;
+        closePrimaryPanels();
+        toolBrushes.switch(button.dataset.tool, true);
+        chooseTool(button.dataset.tool);
+        persistBrushes();
+        toast('已使用相同笔刷切换到' + (tool === 'eraser' ? '橡皮擦' : '画笔'));
+      }, 450);
+    });
+    for (const name of ['pointerup', 'pointercancel', 'pointerleave'])
+      button.addEventListener(name, () => clearTimeout(timer));
+    button.addEventListener(
+      'click',
+      (event) => {
+        if (held) {
+          event.stopImmediatePropagation();
+          held = false;
+        }
+      },
+      true,
+    );
+  }
   $('#color-button').onclick = () => openPanel('color');
   $('#tool-undo').onclick = undo;
   $('#tool-redo').onclick = redo;
@@ -648,6 +700,8 @@ function refresh() {
   $('#header-color .color-dot').style.background = color;
   $('#side-size').value = size;
   $('#side-size-value').textContent = size + ' px';
+  $('#side-opacity').value = currentBrush().opacity;
+  $('#side-opacity-value').textContent = currentBrush().opacity + '%';
   updateRanges(document.querySelector('.size-rail'));
   $('#onion').setAttribute('aria-pressed', onion);
   $('#grid').setAttribute('aria-pressed', grid);
@@ -897,6 +951,13 @@ function chooseTool(next) {
   if (stroke) finishStroke(true);
   if (selectionUI?.transforming) selectionUI.finish(true);
   tool = next;
+  if (['pencil', 'eraser', 'line', 'rect', 'ellipse'].includes(next)) {
+    const previousMode = toolBrushes.mode;
+    const nextMode = next === 'eraser' ? 'eraser' : 'pencil';
+    toolBrushes.switch(nextMode);
+    applyBrushSettings();
+    if (previousMode !== nextMode && toolWindows.has('brush')) void brushPanel();
+  }
   if (['select', 'wand', 'lasso', 'ellipse-select'].includes(next)) selectionUI?.show();
   else selectionUI?.leave();
   refresh();
@@ -973,6 +1034,7 @@ function stamp(x, y, e) {
     selection: ['select', 'select-erase'].includes(stroke?.magic?.mode) ? null : selection,
     mask: stroke?.magic ? stroke.mask : null,
     erase: tool === 'eraser',
+    base: stroke?.before.frames[frame].cels[layer],
   });
 }
 function shapeStroke(a, b, e) {
@@ -1056,8 +1118,7 @@ function beginStroke(e) {
     const c = composite(project, frame),
       i = (p.y * project.w + p.x) * 4;
     color = '#' + Array.from(c.subarray(i, i + 3), (v) => v.toString(16).padStart(2, '0')).join('');
-    tool = 'pencil';
-    refresh();
+    chooseTool('pencil');
     return;
   }
   if (!project.layers[layer].visible) {
@@ -1143,6 +1204,7 @@ function magicPreview() {
     color,
     palette,
   );
+  mixStrokeOpacity(stroke.before.frames[frame].cels[layer], output, stroke.brush.opacity);
   if (selection && !['select', 'select-erase'].includes(stroke.magic.mode))
     for (let i = 0; i < selection.length; i++)
       if (!selection[i])
@@ -1475,6 +1537,7 @@ const toolWindows = createToolWindows((type) => {
 const panelContent = (type) => toolWindows.content(type);
 function openPanel(type, opener = document.activeElement) {
   if (stroke) finishStroke(true);
+  closePrimaryPanels(type);
   const titles = {
     color: '颜色与色板',
     brush: '笔刷库',
@@ -1512,9 +1575,71 @@ $('#header-color').onclick = (e) => openPanel('color', e.currentTarget);
 $('#side-size').oninput = (event) => {
   updateBrush({ size: Number(event.target.value) }, false);
   brushController?.sync();
+  brushFeedback(event.target);
 };
 $('#side-size').onchange = persistBrushes;
+$('#side-opacity').oninput = (event) => {
+  updateBrush({ opacity: Number(event.target.value) }, false);
+  brushController?.sync();
+  brushFeedback(event.target);
+};
+$('#side-opacity').onchange = persistBrushes;
+let brushFeedbackTimer;
+function brushFeedback(input) {
+  let hud = $('#brush-parameter-hud');
+  if (!hud) {
+    hud = document.createElement('div');
+    hud.id = 'brush-parameter-hud';
+    hud.setAttribute('aria-hidden', 'true');
+    hud.innerHTML = '<span></span><strong></strong><i></i>';
+    document.body.append(hud);
+  }
+  const brush = currentBrush(),
+    sizing = input.id === 'side-size',
+    box = input.getBoundingClientRect();
+  hud.hidden = false;
+  hud.querySelector('span').textContent = sizing ? '笔刷大小' : '不透明度';
+  hud.querySelector('strong').textContent = input.value + (sizing ? ' px' : '%');
+  const tip = hud.querySelector('i');
+  tip.style.width = tip.style.height = Math.max(2, brush.size * 2) + 'px';
+  tip.style.borderRadius = brush.shape === 'round' ? '50%' : '0';
+  tip.style.opacity = brush.opacity / 100;
+  hud.style.left = box.right + 24 + 'px';
+  hud.style.top = box.top + box.height / 2 + 'px';
+  clearTimeout(brushFeedbackTimer);
+  brushFeedbackTimer = setTimeout(() => (hud.hidden = true), 650);
+}
+for (const input of [$('#side-size'), $('#side-opacity')])
+  input.addEventListener('pointerdown', () => brushFeedback(input));
+const primaryPanels = ['brush', 'layers', 'color', 'settings', 'tools', 'export'];
+let suppressPaletteTouch = 0;
+function closePrimaryPanels(except) {
+  for (const type of primaryPanels) if (type !== except) toolWindows.close(type);
+}
+document.addEventListener(
+  'pointerdown',
+  (event) => {
+    if (event.target !== view || !primaryPanels.some((type) => toolWindows.has(type))) return;
+    closePrimaryPanels();
+    suppressPaletteTouch = event.pointerType === 'touch' ? performance.now() + 350 : 0;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  },
+  true,
+);
+document.addEventListener(
+  'touchstart',
+  (event) => {
+    if (event.target === view && performance.now() < suppressPaletteTouch) {
+      suppressPaletteTouch = 0;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  },
+  { capture: true, passive: false },
+);
 function showBrushLibrary(group = null) {
+  closePrimaryPanels('brush');
   requestedBrushGroup = group;
   if (toolWindows.has('brush')) {
     toolWindows.open('brush', '笔刷库', brushPanel);
@@ -1665,7 +1790,8 @@ async function brushPanel() {
       root,
       {
         current: currentBrush,
-        brushes: () => brushLibrary.brushes,
+        brushes: () => toolBrushes.brushes(),
+        mode: () => toolBrushes.mode,
         color: () => color,
         palette: () => palette,
         select: selectBrush,
@@ -1686,11 +1812,11 @@ async function brushPanel() {
           selectBrush(copy.id);
           return true;
         },
-        reset: () => updateBrush(BRUSH_PRESETS.find((brush) => brush.id === brushLibrary.active)),
+        reset: () => updateBrush(BRUSH_PRESETS.find((brush) => brush.id === currentBrush().id)),
         remove: () => {
           if (currentBrush().group !== 'user') return;
           brushLibrary.brushes = brushLibrary.brushes.filter(
-            (brush) => brush.id !== brushLibrary.active,
+            (brush) => brush.id !== currentBrush().id,
           );
           selectBrush('pixel-hard');
         },
@@ -1730,13 +1856,14 @@ async function expansionPanel() {
 function panelContext() {
   return [id, dirtyVersion, frame, layer].join(':');
 }
+let layerSolo = null;
 function layersPanel() {
   layerPanelKey = panelContext();
   const c = panelContent('layers'),
     selected = project.layers[layer],
     parent = parentLayer(project, layer),
     end = subtreeEnd(project, layer);
-  c.innerHTML = `<div id="layer-list"></div><div class="animation-two"><button id="add-layer">＋ 图层</button><button id="add-group">＋ 图层组</button><button id="rename-layer">重命名</button><button id="lock-layer">${selected.locked ? '解锁' : '锁定'}</button></div><label>透明度 <span class="row-value" id="opacity-value">${Math.round((selected.opacity / 255) * 100)}%</span><input id="opacity" type="range" min="0" max="255" value="${selected.opacity}"></label><div class="button-row"><button id="layer-up">上移</button><button id="layer-down">下移</button><button id="delete-layer" class="danger">删除</button></div><h3>图层组</h3><div class="animation-two"><button id="group-layer">将当前图层编组</button><button id="ungroup-layer">解散当前组</button></div><label>移至图层组<select id="layer-parent"><option value="-1">画布根目录</option>${project.layers.map((l, i) => (l.group && (i < layer || i >= end) ? `<option value="${i}">${esc(l.name)}</option>` : '')).join('')}</select></label><button id="move-to-group" class="panel-wide">移入所选位置</button><p class="help">上移、下移调整同组顺序；移动图层组会带上全部子图层。组的显示与锁定作用于子图层。新建图层放入当前组。</p>${selected.group && selected.isolated === false ? '<p class="help">这个 ASE 使用旧版直通图层组，保持原作合成方式，组透明度不可单独修改。</p>' : ''}`;
+  c.innerHTML = `<div class="layers-toolbar"><span>${project.layers.length} / ${LIMITS.layers} 图层</span><button id="add-group" aria-label="新建图层组">新建组</button><button id="add-layer" aria-label="新建图层">＋</button></div><div id="layer-list"></div><p class="layers-gesture-hint">轻点选择 · 再点显示选项 · 左滑快捷操作 · 按住拖动排序</p><section id="layer-options" hidden aria-label="图层选项"><div class="layer-options-head"><strong>${esc(selected.name)}</strong><button id="layer-options-close" aria-label="关闭图层选项">×</button></div><label>不透明度 <output class="row-value" id="opacity-value">${Math.round((selected.opacity / 255) * 100)}%</output><input id="opacity" aria-label="图层不透明度" type="range" min="0" max="255" value="${selected.opacity}"></label><div class="layer-option-grid"><button id="rename-layer">重命名</button><button id="duplicate-layer">复制</button><button id="lock-layer">${selected.locked ? '解锁' : '锁定'}</button><button id="clear-layer">清空当前帧</button><button id="layer-up">上移</button><button id="layer-down">下移</button><button id="group-layer">编组</button><button id="ungroup-layer">解散组</button><button id="delete-layer" class="danger">删除图层</button></div><details><summary>移至图层组</summary><label>目标位置<select id="layer-parent"><option value="-1">画布根目录</option>${project.layers.map((l, i) => (l.group && (i < layer || i >= end) ? `<option value="${i}">${esc(l.name)}</option>` : '')).join('')}</select></label><button id="move-to-group" class="panel-wide">移入所选位置</button></details>${selected.group && selected.isolated === false ? '<p class="help">旧版 ASE 直通组保持原作合成方式，组不透明度不可单独修改。</p>' : ''}</section>`;
   const run = (fn) => {
     try {
       editProject(fn);
@@ -1749,7 +1876,8 @@ function layersPanel() {
       row = document.createElement('div');
     row.className = 'layer' + (i === layer ? ' active' : '');
     row.style.marginLeft = (l.level || 0) * 10 + 'px';
-    row.innerHTML = `<button class="visibility" aria-label="${l.visible ? '隐藏' : '显示'}图层 ${esc(l.name)}">${svg(l.visible ? 'eye' : 'hidden')}</button>${l.group ? `<button class="layer-fold" aria-label="${l.collapsed ? '展开' : '折叠'}图层组 ${esc(l.name)}">${l.collapsed ? '▸' : '▾'}</button>` : ''}<button class="layer-select" aria-label="选择图层 ${esc(l.name)}"><span>${esc(l.name)}${layerLocked(project, i) ? ' 🔒' : ''}</span></button>`;
+    row.dataset.dragKey = i;
+    row.innerHTML = `<div class="layer-swipe-actions"><button data-layer-lock>${l.locked ? '解锁' : '锁定'}</button><button data-layer-copy>复制</button><button data-layer-delete class="destructive">删除</button></div><div class="layer-face">${l.group ? `<button class="layer-fold" aria-label="${l.collapsed ? '展开' : '折叠'}图层组 ${esc(l.name)}">${l.collapsed ? '▸' : '▾'}</button>` : ''}<button class="layer-select" data-item-touch aria-pressed="${i === layer}" aria-label="选择图层 ${esc(l.name)}"><span>${esc(l.name)}<small>${l.group ? '图层组' : '普通'}${layerLocked(project, i) ? ' · 已锁定' : ''}</small></span></button><button class="layer-blend" aria-label="图层 ${esc(l.name)} 不透明度">${Math.round((l.opacity / 255) * 100) === 100 ? 'N' : Math.round((l.opacity / 255) * 100) + '%'}</button><button class="visibility" role="checkbox" aria-checked="${l.visible}" aria-label="${l.visible ? '隐藏' : '显示'}图层 ${esc(l.name)}">${l.visible ? '☑' : '□'}</button></div>`;
     if (!l.group) {
       const t = document.createElement('canvas');
       paintBuffer(t, project.frames[frame].cels[i]);
@@ -1757,18 +1885,81 @@ function layersPanel() {
     }
     row.querySelector('.visibility').onclick = () =>
       run((p) => (p.layers[i].visible = !p.layers[i].visible));
+    const visibility = row.querySelector('.visibility');
+    let soloTimer;
+    visibility.onpointerdown = (event) => {
+      if (event.button !== 0) return;
+      soloTimer = setTimeout(() => {
+        const restore =
+          layerSolo?.id === id &&
+          layerSolo.layers.every((item, k) => item === project.layers[k]) &&
+          layerSolo.layers.length === project.layers.length;
+        const previous = project.layers.map((item) => item.visible);
+        run((p) => {
+          const ancestors = new Set([i]);
+          for (let k = parentLayer(p, i); k >= 0; k = parentLayer(p, k)) ancestors.add(k);
+          p.layers.forEach(
+            (item, k) =>
+              (item.visible = restore
+                ? layerSolo.visible[k]
+                : ancestors.has(k) || (k > i && k < subtreeEnd(p, i))),
+          );
+        });
+        layerSolo = restore ? null : { id, layers: [...project.layers], visible: previous };
+        toast(restore ? '已恢复图层显示' : '仅显示此图层 · 长按勾选框恢复');
+      }, 500);
+    };
+    for (const name of ['pointerup', 'pointercancel', 'pointerleave'])
+      visibility.addEventListener(name, () => clearTimeout(soloTimer));
+    visibility.oncontextmenu = (event) => event.preventDefault();
     if (l.group)
       row.querySelector('.layer-fold').onclick = () =>
         run((p) => (p.layers[i].collapsed = !p.layers[i].collapsed));
-    row.querySelector('.layer-select').onclick = () => {
+    const select = () => {
+      if (i === layer) {
+        $('#layer-options').hidden = !$('#layer-options').hidden;
+        return;
+      }
       stop();
       layer = i;
       selection = null;
       render();
       refresh();
     };
+    row.querySelector('.layer-select').onclick = select;
+    row.querySelector('.layer-blend').onclick = () => {
+      if (i !== layer) {
+        layer = i;
+        refresh();
+      }
+      $('#layer-options').hidden = false;
+      $('#opacity').focus({ preventScroll: true });
+    };
+    row.querySelector('[data-layer-copy]').onclick = () =>
+      run((p) => (layer = duplicateLayer(p, i)));
+    row.querySelector('[data-layer-lock]').onclick = () =>
+      run((p) => (p.layers[i].locked = !p.layers[i].locked));
+    row.querySelector('[data-layer-delete]').onclick = () => {
+      if (i !== layer) {
+        layer = i;
+        refresh();
+      }
+      $('#delete-layer').click();
+    };
+    itemGestures(row, {
+      scroller: c,
+      swipe: (direction) => {
+        c.querySelectorAll('.layer.swiped').forEach((el) => el.classList.remove('swiped'));
+        row.classList.toggle('swiped', direction === 'left');
+      },
+      drop: (destination) => run((p) => (layer = reorderBeside(p, i, Number(destination)))),
+    });
     $('#layer-list').append(row);
   }
+  $('#layer-options-close').onclick = () => ($('#layer-options').hidden = true);
+  $('#duplicate-layer').onclick = () => run((p) => (layer = duplicateLayer(p, layer)));
+  $('#clear-layer').disabled = selected.group || layerLocked(project, layer);
+  $('#clear-layer').onclick = () => run((p) => p.frames[frame].cels[layer].fill(0));
   $('#lock-layer').onclick = () => run((p) => (p.layers[layer].locked = !p.layers[layer].locked));
   $('#add-layer').onclick = () => run((p) => (layer = addLayer(p, layer)));
   $('#add-group').onclick = () => run((p) => (layer = addLayer(p, layer, true)));
@@ -1779,9 +1970,21 @@ function layersPanel() {
       run(() => (target.name = name.trim().slice(0, 160)));
   };
   $('#opacity').disabled = selected.group && selected.isolated === false;
-  $('#opacity').onchange = (e) => run((p) => (p.layers[layer].opacity = Number(e.target.value)));
-  $('#opacity').oninput = (e) =>
-    ($('#opacity-value').textContent = Math.round((e.target.value / 255) * 100) + '%');
+  let opacityBefore = null;
+  $('#opacity').onchange = () => {
+    if (!opacityBefore) return;
+    checkpoint(opacityBefore);
+    opacityBefore = null;
+    changed();
+  };
+  $('#opacity').oninput = (e) => {
+    opacityBefore ||= clone(project);
+    selected.opacity = Number(e.target.value);
+    $('#opacity-value').textContent = Math.round((e.target.value / 255) * 100) + '%';
+    frameCache.clear();
+    onionCache.clear();
+    render();
+  };
   $('#layer-up').onclick = () => run((p) => (layer = reorderLayer(p, layer, 1)));
   $('#layer-down').onclick = () => run((p) => (layer = reorderLayer(p, layer, -1)));
   const siblings = project.layers
@@ -1886,10 +2089,11 @@ function settingsPanel() {
       <button id="manual-save" class="panel-wide">保存到作品库 <span>仅此设备</span></button>
     </section>
     <section class="setting-group"><h3>画室</h3>
-      <button id="settings-plugins" class="panel-wide">插件工作台 <span>5 个扩展 · ›</span></button>
+      <button id="settings-export" class="panel-wide">分享与导出 <span>项目 · 图片 · 动画 ›</span></button><button id="settings-plugins" class="panel-wide">插件工作台 <span>5 个扩展 · ›</span></button>
       <button id="install-help" class="panel-wide">添加到主屏幕 <span>全屏使用 · ›</span></button>
-      <button id="check-update" class="panel-wide">检查更新 <span>v0.9.1</span></button>
+      <button id="check-update" class="panel-wide">检查更新 <span>v0.10.0</span></button>
     </section>`;
+  $('#settings-export').onclick = (event) => openPanel('export', event.currentTarget);
   $('#settings-expand').onclick = (event) => openPanel('expand', event.currentTarget);
   $('#settings-capacity').onclick = (event) => openPanel('capacity', event.currentTarget);
   $('#shape-delay').oninput = (e) => {
@@ -1933,7 +2137,7 @@ function settingsPanel() {
     if (r) {
       await r.update();
       toast('已检查更新；如有新版本，顶部会显示更新提示');
-    } else toast('当前版本 v0.9.1');
+    } else toast('当前版本 v0.10.0');
   };
 }
 function download(data, ext, type) {
@@ -2086,6 +2290,20 @@ async function gallery() {
       ask: askDialog,
       toast,
       remove: (key) => projectStore.remove(key),
+      share: async (keys) => {
+        for (const key of keys) {
+          const record = await projectStore.get(key);
+          if (!record) throw Error('作品已被移除');
+          const url = URL.createObjectURL(
+            new Blob([serialize(record.project)], { type: 'application/json' }),
+          );
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = record.project.name + '.pixel';
+          link.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+      },
       rename: async (record, name) => {
         const full = await projectStore.get(record.id);
         if (!full) throw Error('作品已被移除');

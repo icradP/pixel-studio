@@ -132,3 +132,15 @@ CDP 触控验证：第二根手指加入时取消阈值预览并恢复原选区�
 参考：https://help.procreate.com/cn/procreate/handbook/selections/selections-interface
 参考：https://help.procreate.com/procreate/handbook/selections/selections-settings
 真实 iPadOS Safari / Apple Pencil 触感和持续绘画性能仍需设备实测；桌面触控模拟不能替代硬件验证。
+
+2026-10-12 v0.10.0 画室工作流验证：
+105 项 Node 单元测试、40 项 Chrome / Playwright 浏览器回归通过，ESLint / Prettier / precache 一致性与 git diff --check 通过。
+画笔 / 橡皮轻点切换、再点开库、各自笔刷参数、刷新恢复和长按参数转移验证通过。50% 绘画单次笔画重叠保持 alpha 128；50% 橡皮变为 alpha 64；撤销恢复原像素。
+图层轻点 / 再点选项、左滑复制、按住同组排序、跨 6 帧的复制与排序、撤销验证通过。独显恢复原本隐藏的图层状态，不透明度一笔调整只需一次撤销。
+画廊直接重命名、快捷复制、堆叠创建 / 进入 / 移出、拖动排序刷新保留、.pixel 下载通过；画廊组织操作不修改作品帧数据。原有 v1 IndexedDB 作品迁移与删除测试继续通过。
+CDP 触控验证：第一次点画布只收起面板且不落笔；下一次触控正常绘画。图层长按拖动遇到 touchCancel 不改变顺序，也不留下拖动视觉状态。
+390×844、768×1024、1024×768 和 1366×1024 视觉检查通过。顶部画笔/橡皮/选区入口、侧栏双滑条、笔刷工作室完成/取消与试画板可达；笔刷调校取消恢复原参数。
+原有魔棒阈值手势、双指撤销/三指重做、离线启动、延迟加载、失败保存保护、逐帧预览缓存、抖色与四向扩展回归保持通过。
+截图：tests/output/workflow-canvas.png、workflow-layers.png、workflow-brushes.png、workflow-studio.png、workflow-gallery.png（本地截图，不提交）。
+本次参考 Procreate 官方界面、Paint/Smudge/Erase、Layers Interface、Brush Studio 和 Gallery Organize 手册；实现保留像素画和动画的容量与格式限制。
+iPadOS Safari / Apple Pencil 实机压感、长按与持续绘画手感仍待硬件验证。触控模拟不等同于实机验证。
