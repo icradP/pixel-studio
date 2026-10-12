@@ -45,6 +45,7 @@ import { askDialog, showDialog, hideDialog } from './dialogs.js';
 import { PLUGINS } from './plugin-registry.js';
 import { rectangleMask, maskBounds, magicPixels, extractMasked } from './plugin-core.js';
 import { createSelectionController } from './selection-ui.js';
+import { createSelectionOverlay } from './selection-overlay.js';
 import {
   recognizeShape,
   adjustShape,
@@ -389,8 +390,9 @@ function checkpoint(snapshot = clone(project)) {
   history.checkpoint(snapshot);
 }
 function updateHistory() {
-  ['#quick-undo', '#tool-undo'].forEach((s) => ($(s).disabled = !history.canUndo));
-  ['#quick-redo', '#tool-redo'].forEach((s) => ($(s).disabled = !history.canRedo));
+  const active = selectionUI?.editingSelection ? selectionUI : history;
+  ['#quick-undo', '#tool-undo'].forEach((s) => ($(s).disabled = !active.canUndo));
+  ['#quick-redo', '#tool-redo'].forEach((s) => ($(s).disabled = !active.canRedo));
 }
 function restoreHistory(direction) {
   if (selectionUI?.transforming) {
@@ -398,6 +400,10 @@ function restoreHistory(direction) {
     return;
   }
   if (stroke) return;
+  if (selectionUI?.editingSelection) {
+    selectionUI[direction]();
+    return;
+  }
   const restored = history[direction](project);
   if (!restored) return;
   stop();
@@ -508,47 +514,24 @@ function renderProject() {
     frames: project.frames.map((item, i) => (i === frame ? { ...f, cels } : item)),
   };
 }
+const selectionOverlay = createSelectionOverlay();
 function drawSelection() {
   if (selectionUI?.draw(ctx, camera.scale)) return;
-  const mask = stroke?.selecting
-    ? selection
-    : stroke?.magic && ['select', 'select-erase', 'lift', 'merge'].includes(stroke.magic.mode)
-      ? stroke.mask
-      : selection;
-  if (!mask) return;
-  const b = maskBounds(mask, project.w, project.h);
-  if (!b) return;
-  ctx.fillStyle = '#48a9ff55';
-  for (let i = 0; i < mask.length; i++)
-    if (mask[i]) ctx.fillRect(i % project.w, Math.floor(i / project.w), 1, 1);
-  ctx.strokeStyle = '#bde5ff';
-  ctx.lineWidth = 1 / camera.scale;
-  ctx.setLineDash([4 / camera.scale, 3 / camera.scale]);
-  ctx.beginPath();
-  for (let y = 0; y < project.h; y++)
-    for (let x = 0; x < project.w; x++) {
-      const i = y * project.w + x;
-      if (!mask[i]) continue;
-      if (!y || !mask[i - project.w]) {
-        ctx.moveTo(x, y);
-        ctx.lineTo(x + 1, y);
-      }
-      if (y === project.h - 1 || !mask[i + project.w]) {
-        ctx.moveTo(x, y + 1);
-        ctx.lineTo(x + 1, y + 1);
-      }
-      if (!x || !mask[i - 1]) {
-        ctx.moveTo(x, y);
-        ctx.lineTo(x, y + 1);
-      }
-      if (x === project.w - 1 || !mask[i + 1]) {
-        ctx.moveTo(x + 1, y);
-        ctx.lineTo(x + 1, y + 1);
-      }
-    }
-  ctx.stroke();
-  ctx.setLineDash([]);
+  const effectMask =
+    !!stroke?.magic && ['select', 'select-erase', 'lift', 'merge'].includes(stroke.magic.mode);
+  const mask = effectMask ? stroke.mask : selection;
+  selectionOverlay.draw(
+    ctx,
+    mask,
+    project.w,
+    project.h,
+    camera.scale,
+    !!selectionUI?.editingSelection || effectMask,
+    selectionUI?.maskOpacity,
+    effectMask,
+  );
 }
+
 function drawPreview(source, dirty = false) {
   if (pixelRenderer.draw(ctx, source, camera, cw, ch, devicePixelRatio || 1, displayMode, dirty))
     return;
@@ -652,8 +635,13 @@ function refresh() {
   $('#brush-size').textContent = size + ' px';
   $$('.color-dot').forEach((dot) => (dot.style.background = color));
   $$('[data-tool]').forEach((b) => {
-    b.classList.toggle('active', b.dataset.tool === tool);
-    b.setAttribute('aria-pressed', b.dataset.tool === tool);
+    const active =
+      b.dataset.tool === tool ||
+      (b.dataset.tool === 'select' &&
+        !!selection &&
+        !['select', 'wand', 'lasso', 'ellipse-select'].includes(tool));
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-pressed', active);
   });
   $('#pencil-only').setAttribute('aria-pressed', penOnly);
   $('#input-mode').textContent = penOnly ? 'Pencil 模式' : '手指绘画';
@@ -910,7 +898,9 @@ function chooseTool(next) {
   if (selectionUI?.transforming) selectionUI.finish(true);
   tool = next;
   if (['select', 'wand', 'lasso', 'ellipse-select'].includes(next)) selectionUI?.show();
+  else selectionUI?.leave();
   refresh();
+  render();
 }
 function renderPins() {
   const shelf = $('#plugin-shortcuts');
@@ -1016,7 +1006,7 @@ function beginStroke(e) {
   if (stroke || $('dialog[open]')) return;
   if (
     (project.layers[layer].group || layerLocked(project, layer)) &&
-    !['hand', 'pick'].includes(tool)
+    !['hand', 'pick', 'select', 'wand', 'lasso', 'ellipse-select'].includes(tool)
   ) {
     toast(
       project.layers[layer].group ? '请选择组内的像素图层绘画' : '当前图层已锁定，可在图层面板解锁',
@@ -1833,6 +1823,7 @@ function capacityPanel() {
       <div class="capacity-row"><div><span>图层</span><output id="capacity-layers"></output></div><small id="capacity-more-layers"></small></div>
       <div class="capacity-row"><div><span>动画帧</span><output id="capacity-frames"></output></div><small id="capacity-more-frames"></small></div>
       <div class="capacity-row"><div><span>撤销与重做</span><output id="capacity-history"></output></div><progress id="capacity-history-meter" aria-label="历史像素数据预算" max="${LIMITS.historyBytes}"></progress><small>最多 ${LIMITS.historyEntries} 步，共用 ${mebibytes(LIMITS.historyBytes)}。达到任一上限，会释放最早的历史记录。</small></div>
+      <div class="capacity-row"><div><span>选区历史</span><output>上限 ${mebibytes(LIMITS.selectionHistoryBytes)}</output></div><small>最多 ${LIMITS.selectionHistoryEntries} 次操作，遮罩与取样记录共用预算；切换帧、图层、作品或修改像素后重置。</small></div>
       <div class="capacity-row"><div><span>帧预览缓存</span><output id="capacity-preview"></output></div><small>上限 ${mebibytes(LIMITS.previewBytes)}，按需释放后可重新生成。</small></div>
       <p class="capacity-note">画布最大 ${LIMITS.dimension} × ${LIMITS.dimension}。单个导入文件最多 60 MiB。以上是画室的数据预算；设备实际内存还包括图像转换、显示纹理及系统开销。</p>
       <p class="capacity-note">容量接近上限时，可减少帧或图层，或导出备份后拆成多个作品。作品保存在此设备，建议定期导出 .pixel 备份。</p>
@@ -1897,7 +1888,7 @@ function settingsPanel() {
     <section class="setting-group"><h3>画室</h3>
       <button id="settings-plugins" class="panel-wide">插件工作台 <span>5 个扩展 · ›</span></button>
       <button id="install-help" class="panel-wide">添加到主屏幕 <span>全屏使用 · ›</span></button>
-      <button id="check-update" class="panel-wide">检查更新 <span>v0.9.0</span></button>
+      <button id="check-update" class="panel-wide">检查更新 <span>v0.9.1</span></button>
     </section>`;
   $('#settings-expand').onclick = (event) => openPanel('expand', event.currentTarget);
   $('#settings-capacity').onclick = (event) => openPanel('capacity', event.currentTarget);
@@ -1942,7 +1933,7 @@ function settingsPanel() {
     if (r) {
       await r.update();
       toast('已检查更新；如有新版本，顶部会显示更新提示');
-    } else toast('当前版本 v0.9.0');
+    } else toast('当前版本 v0.9.1');
   };
 }
 function download(data, ext, type) {
@@ -2313,11 +2304,9 @@ async function init() {
       selection = mask;
     },
     tool: () => tool,
-    selectTool: (next) => {
-      if (stroke) finishStroke(true);
-      tool = next;
-      refresh();
-    },
+    selectTool: chooseTool,
+    historyChanged: updateHistory,
+    canEdit: () => !project.layers[layer].group && !layerLocked(project, layer),
     color: () => color,
     scale: () => camera.scale,
     render,

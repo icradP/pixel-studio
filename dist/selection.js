@@ -43,48 +43,57 @@ export function combineSelection(previous, next, mode = 'replace') {
   return out.some(Boolean) ? out : null;
 }
 
-// Compare premultiplied colors so invisible RGB values cannot split transparent areas.
-export function wandSelection(pixels, w, h, x, y, { tolerance = 20, contiguous = true } = {}) {
-  const mask = new Uint8Array(w * h);
+// Cache seed distances and flood buffers for live threshold scrubbing.
+// Premultiplied colors keep invisible RGB from splitting transparent regions.
+export function createWandSampler(pixels, w, h, x, y, { contiguous = true } = {}) {
   x = Math.floor(x);
   y = Math.floor(y);
-  if (x < 0 || y < 0 || x >= w || y >= h) return mask;
-  const seed = (y * w + x) * 4,
-    alpha = pixels[seed + 3] / 255,
-    threshold = Math.max(0, Math.min(100, tolerance)) * 2.55;
-  const matches = (i) => {
+  if (x < 0 || y < 0 || x >= w || y >= h) return () => new Uint8Array(w * h);
+  const seed = y * w + x,
+    alpha = pixels[seed * 4 + 3] / 255;
+  const distances = new Float64Array(w * h);
+  for (let i = 0; i < distances.length; i++) {
     const a = pixels[i * 4 + 3] / 255;
     let d = Math.abs((a - alpha) * 255);
     for (let c = 0; c < 3; c++)
-      d = Math.max(d, Math.abs(pixels[i * 4 + c] * a - pixels[seed + c] * alpha));
-    return d <= threshold + 1e-8;
-  };
-  if (!contiguous) {
-    for (let i = 0; i < mask.length; i++) if (matches(i)) mask[i] = 1;
-    return mask;
+      d = Math.max(d, Math.abs(pixels[i * 4 + c] * a - pixels[seed * 4 + c] * alpha));
+    distances[i] = d;
   }
-  const seen = new Uint8Array(w * h),
-    queue = new Int32Array(w * h);
-  let head = 0,
-    tail = 1;
-  queue[0] = y * w + x;
-  seen[queue[0]] = 1;
-  while (head < tail) {
-    const n = queue[head++];
-    if (!matches(n)) continue;
-    mask[n] = 1;
-    for (const v of [
-      n % w ? n - 1 : -1,
-      n % w < w - 1 ? n + 1 : -1,
-      n >= w ? n - w : -1,
-      n < w * (h - 1) ? n + w : -1,
-    ])
-      if (v >= 0 && !seen[v]) {
-        seen[v] = 1;
-        queue[tail++] = v;
+  const seen = contiguous ? new Uint8Array(w * h) : null;
+  const queue = contiguous ? new Int32Array(w * h) : null;
+  return (tolerance = 20) => {
+    const mask = new Uint8Array(w * h);
+    const threshold =
+      Math.max(0, Math.min(100, Number.isFinite(tolerance) ? tolerance : 0)) * 2.55 + 1e-8;
+    if (!contiguous) {
+      for (let i = 0; i < mask.length; i++) if (distances[i] <= threshold) mask[i] = 1;
+      return mask;
+    }
+    seen.fill(0);
+    let head = 0,
+      tail = 1;
+    queue[0] = seed;
+    seen[seed] = 1;
+    const visit = (n) => {
+      if (!seen[n]) {
+        seen[n] = 1;
+        queue[tail++] = n;
       }
-  }
-  return mask;
+    };
+    while (head < tail) {
+      const n = queue[head++];
+      if (distances[n] > threshold) continue;
+      mask[n] = 1;
+      if (n % w) visit(n - 1);
+      if (n % w < w - 1) visit(n + 1);
+      if (n >= w) visit(n - w);
+      if (n < w * (h - 1)) visit(n + w);
+    }
+    return mask;
+  };
+}
+export function wandSelection(pixels, w, h, x, y, { tolerance = 20, contiguous = true } = {}) {
+  return createWandSampler(pixels, w, h, x, y, { contiguous })(tolerance);
 }
 
 export function transformPoint(x, y, t) {

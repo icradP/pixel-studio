@@ -5,6 +5,8 @@ export const LIMITS = Object.freeze({
   pixels: 8_000_000,
   historyEntries: 30,
   historyBytes: 64 * 1024 * 1024,
+  selectionHistoryEntries: 30,
+  selectionHistoryBytes: 4 * 1024 * 1024,
   previewBytes: 32 * 1024 * 1024,
   importBytes: 60 * 1024 * 1024,
 });

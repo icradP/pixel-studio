@@ -225,7 +225,7 @@ test('one stroke retains 90 frame nodes and recomposites only changed previews',
   await expect(page.getByRole('combobox', { name: /播放动画片段/ })).toContainText('全部帧');
 });
 
-test('selection tools toggle and hide the choice control during transformation', async ({
+test('selection tools toggle and hide composition controls during transformation', async ({
   page,
 }) => {
   await ready(page);
@@ -239,7 +239,7 @@ test('selection tools toggle and hide the choice control during transformation',
   await trigger.click();
   await expect(panel).toBeVisible();
   await page.locator('#selection-invert').click();
-  const combo = page.getByRole('combobox', { name: /选区组合/ });
+  const combo = page.getByRole('group', { name: '选区组合', exact: true });
   await expect(combo).toBeVisible();
   await page.locator('#selection-transform').click();
   await expect(combo).toBeHidden();

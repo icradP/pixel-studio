@@ -1,4 +1,4 @@
-像素画室 · Pixel Studio v0.9.0
+像素画室 · Pixel Studio v0.9.1
 
 在线画室：https://icradP.github.io/pixel-studio/
 
@@ -58,6 +58,9 @@ canvas-resize.js：先校验尺寸与总像素预算，再逐行复制所有帧/
 pixel-renderer.js：WebGL 像素边缘采样，不能使用时回退 Canvas 2D。
   Canvas 显示插值只影响预览，不修改项目像素。
 animation*.js / selection*.js：动画与选区算法和界面。
+  selection-ui.js：连续添加、减选、阈值拖动及取样设置，按屏幕刷新合并重算。
+  selection-history.js：选区与取样状态的独立撤销/重做，最多 30 次 / 4 MiB。
+  selection-overlay.js：缓存选区几何，编辑时反色预览，绘画时遮罩选区外区域。
 pixel-worker.js：图片转换计算；主线程负责文件读取与交互。
 precache.js / sw.js：完整缓存同一版本资源，保存后手动应用更新。
   缓存名称包含部署路径；清理旧版本时只处理本部署路径的缓存。

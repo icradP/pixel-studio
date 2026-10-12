@@ -118,3 +118,17 @@ ESLint、Prettier、离线清单一致性、git diff --check 均通过。
 界面截图：tests/output/brush-library.png、brush-studio.png、canvas-expansion.png（本地验证产物，不提交）。
 ESLint、Prettier、离线资源清单一致性与 git diff --check 通过。新增界面模块按需加载，包含在离线缓存中。
 真实 iPadOS Safari / Apple Pencil 压感与持续绘画手感仍需设备实测。本轮未发布到远端。
+
+2026-10-12 v0.9.1 自动选区交互验证：
+参考 Procreate 官方手册的自动选区、选区界面和设置交互，重做魔棒的点按累加、固定取样点左右拖动阈值、移除区域和独立选区历史。
+100 项 Node 测试、31 项 Chrome / Playwright 浏览器回归通过；ESLint、Prettier、离线资源清单和 git diff --check 通过。
+新增 5 项算法/历史测试和 9 项浏览器测试，覆盖透明色差、连通/全局取样、阈值扩大与缩小、重复点击无空历史、清除与撤销、恢复取样参数、绘画历史隔离。
+CDP 触控验证：第二根手指加入时取消阈值预览并恢复原选区；双指撤销、三指重做。单次阈值拖动只记录一个选区步骤。
+画布数值检查：选择时选中区域反色；切换画笔后保留选区内原色，选区外显示可调斜线遮罩；Magic Pencil 原地更新遮罩时正确刷新缓存。选区操作不修改作品像素。
+1366×1024、1024×768、768×1024、390×844 布局检查通过。面板底部停靠、可收起和拖动；小屏保留选区撤销/重做；当前层/可见层取样来源直接可见。
+选区历史最多 30 次、共用 4 MiB，容量面板明确告知。阈值重采样复用颜色距离与遍历缓冲，指针预览按绘制帧合并；静止选区不持续执行动画。
+界面截图：tests/output/automatic-selection-preview.png、selection-paint-mask-preview.png（本地验证产物，不提交）。
+参考：https://help.procreate.com/cn/procreate/handbook/selections/selections-automatic
+参考：https://help.procreate.com/cn/procreate/handbook/selections/selections-interface
+参考：https://help.procreate.com/procreate/handbook/selections/selections-settings
+真实 iPadOS Safari / Apple Pencil 触感和持续绘画性能仍需设备实测；桌面触控模拟不能替代硬件验证。
