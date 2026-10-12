@@ -1,0 +1,7 @@
+node_modules/
+tests/output/
+test-results/
+playwright-report/
+package-lock.json
+dist/perfect-pixel.js
+dist/precache.js

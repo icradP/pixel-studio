@@ -1,21 +1,349 @@
-export function tagSequence(tag,count){const from=tag?.from??0,to=tag?.to??count-1,forward=Array.from({length:to-from+1},(_,i)=>from+i),direction=tag?.direction??0;if(direction===1)return forward.reverse();if(direction===2)return forward.concat(forward.slice(1,-1).reverse());if(direction===3)return forward.reverse().concat(forward.slice(1,-1).reverse());return forward;}
-export function shiftTags(p,index,remove=false){if(!p.tags)return;p.tags=p.tags.flatMap(tag=>{const t={...tag};if(remove){if(t.from===index&&t.to===index)return [];if(t.from>index)t.from--;if(t.to>=index)t.to--;}else{if(t.from>=index)t.from++;if(t.to>=index)t.to++;}return [t];});}
-export function layerOrder(layers){const children=new Map();const stack=[];layers.forEach((l,i)=>{const depth=l.level||0;stack.length=depth;const parent=depth?stack[depth-1]:-1;if(!children.has(parent))children.set(parent,[]);children.get(parent).push(i);if(l.group)stack[depth]=i;});const out=[];function visit(parent){for(const i of [...(children.get(parent)||[])].reverse()){out.push(i);if(layers[i].group)visit(i);}}visit(-1);return out;}
-export function playbackCursor(tag,count,current=0){const sequence=tagSequence(tag,count),ping=(tag?.direction||0)>=2,size=tag?tag.to-tag.from+1:count;let position=Math.max(0,sequence.indexOf(current)),played=position,limit=tag?.repeat?(ping&&size>1?1+tag.repeat*(size-1):tag.repeat*size):Infinity;return {first:sequence[position],next(){if(++played>=limit)return null;position=(position+1)%sequence.length;return sequence[position];}};}
-export function createTimeline(host){
- const timeline=document.querySelector('#timeline'),frames=document.querySelector('#frames'),bar=document.createElement('div'),detail=document.createElement('div');bar.className='animation-tag-toolbar';bar.innerHTML='<select id="animation-tag" aria-label="播放动画片段"></select><span id="tag-summary"></span><label class="timeline-speed"><input id="playback-speed" aria-label="整体预览倍速" type="number" min="0.1" max="8" step="0.05" value="1"><span>×</span></label><button id="timeline-detail">图层帧格</button>';detail.id='ase-timeline';timeline.insertBefore(bar,frames);timeline.insertBefore(detail,frames);let detailed=false,active=-1,context='',cursor=null,lastKey='',columns=[],rows=[],lastFrame=-1,lastLayer=-1;
- const select=bar.querySelector('select');bar.querySelector('#playback-speed').value=host.speed();bar.querySelector('#playback-speed').oninput=e=>{const value=Number(e.target.value);if(value>=.1&&value<=8)host.setSpeed(value);};bar.querySelector('#playback-speed').onchange=e=>{host.setSpeed(Number(e.target.value));e.target.value=host.speed();};
- function activeTag(){return host.project().tags?.[active];}
- function choose(index){host.stop();active=index;const t=activeTag();if(t)host.selectFrame(t.from);render();if(t&&detailed){const cell=parseFloat(getComputedStyle(detail.firstElementChild).getPropertyValue('--cell'))||26;detail.scrollLeft=Math.max(0,t.from*cell-26);detail.scrollTop=0;}}
- select.onchange=()=>choose(+select.value);bar.querySelector('button').onclick=()=>{detailed=!detailed;render();host.resize();};
- const grip=document.createElement('div');grip.id='timeline-resize';grip.tabIndex=0;grip.setAttribute('role','separator');grip.setAttribute('aria-label','调整时间轴高度');grip.setAttribute('aria-orientation','horizontal');timeline.prepend(grip);let resizing=null;
- const setHeight=value=>{const height=Math.round(Math.max(260,Math.min(innerHeight-210,value)));document.body.style.setProperty('--timeline-expanded',height+'px');detail.style.height=Math.max(150,height-104)+'px';grip.setAttribute('aria-valuenow',height);host.resize();};
- window.addEventListener('resize',()=>{const value=parseFloat(document.body.style.getPropertyValue('--timeline-expanded'));if(detailed&&value)setHeight(value);});
- grip.onpointerdown=e=>{if(!detailed)return;host.stop();resizing={y:e.clientY,height:timeline.getBoundingClientRect().height};grip.setPointerCapture(e.pointerId);document.body.classList.add('timeline-resizing');e.preventDefault();};grip.onpointermove=e=>{if(resizing)setHeight(resizing.height+resizing.y-e.clientY);};grip.onpointerup=grip.onpointercancel=()=>{resizing=null;document.body.classList.remove('timeline-resizing');};grip.onkeydown=e=>{if(!detailed)return;if(e.key==='ArrowUp'||e.key==='ArrowDown'){e.preventDefault();setHeight(timeline.getBoundingClientRect().height+(e.key==='ArrowUp'?30:-30));}};
- function render(){const p=host.project(),key=host.id()+":"+host.revision()+":"+detailed+":"+active;if(key===lastKey){highlight();return;}lastKey=key;if(context!==host.id()){context=host.id();active=-1;detailed=!!p.tags?.length;}if(active>= (p.tags?.length||0))active=-1;select.replaceChildren(new Option('全部帧',-1));(p.tags||[]).forEach((t,i)=>select.add(new Option(`${t.name} · ${t.from+1}–${t.to+1}`,i)));select.value=String(active);const tag=activeTag();bar.querySelector('#tag-summary').textContent=tag?`${tag.to-tag.from+1} 帧 · ${['正向','反向','往返','反向往返'][tag.direction]} · ${tag.repeat?tag.repeat+' 次':'循环'}`:`${p.frames.length} 帧 · ${p.tags?.length||0} 个动画标签`;bar.querySelector('button').textContent=detailed?'缩略图':'图层帧格';timeline.classList.toggle('timeline-detailed',detailed);document.body.classList.toggle('timeline-detailed',detailed);frames.hidden=detailed;detail.hidden=!detailed;columns=[];rows=[];lastFrame=-1;lastLayer=-1;if(!detailed)return;
- const left=detail.scrollLeft,top=detail.scrollTop;detail.replaceChildren();const content=document.createElement('div');content.className='ase-track-content';content.style.setProperty('--frame-count',p.frames.length);const labels=document.createElement('div');labels.className='ase-tag-tracks';const lanes=[];for(const [i,t] of (p.tags||[]).entries()){let lane=lanes.findIndex(end=>end<t.from);if(lane<0)lane=lanes.length;lanes[lane]=t.to;const b=document.createElement('button');b.className='ase-tag'+(i===active?' active':'');b.style.gridColumn=`${t.from+2} / ${t.to+3}`;b.style.gridRow=String(lane+1);b.style.borderColor=t.color||'#75bde8';b.textContent=t.name;b.title=`${t.name} · 第 ${t.from+1}–${t.to+1} 帧`;b.onclick=()=>choose(i);labels.append(b);}if(!p.tags?.length){const hint=document.createElement('span');hint.textContent='此文件没有动画标签';hint.className='ase-no-tags';labels.append(hint);}content.style.setProperty('--tag-height',(Math.max(1,lanes.length)*25+3)+'px');content.append(labels);
- const header=document.createElement('div');header.className='ase-grid-row ase-frame-header';const title=document.createElement('span');title.className='ase-layer-name';title.textContent='图层 / 帧 · 毫秒';header.append(title);p.frames.forEach((f,i)=>{const b=document.createElement('button');b.dataset.frame=i;b.className=i===host.frame()?'active':'';b.innerHTML=`<strong>${i+1}</strong><small>${f.duration}</small>`;b.setAttribute('aria-label',`跳到第 ${i+1} 帧，${f.duration} 毫秒`);b.onclick=()=>host.selectFrame(i);header.append(b);});content.append(header);
- let hiddenDepth=Infinity;for(const li of layerOrder(p.layers)){const depth=p.layers[li].level||0;if(depth>hiddenDepth)continue;hiddenDepth=p.layers[li].group&&p.layers[li].collapsed?depth:Infinity;const layer=p.layers[li],row=document.createElement('div');row.className='ase-grid-row'+(li===host.layer()?' current-layer':'');const name=document.createElement('div');name.className='ase-layer-name';name.style.paddingLeft=(8+(layer.level||0)*12)+'px';const label=document.createElement('button');label.className='ase-layer-select';label.textContent=layer.name;name.append(label);if(layer.group){const fold=document.createElement('button');fold.className='group-disclosure';fold.textContent=layer.collapsed?'▸':'▾';fold.setAttribute('role','button');fold.setAttribute('aria-label',(layer.collapsed?'展开':'折叠')+'图层组 '+layer.name);fold.onclick=e=>{e.stopPropagation();host.toggleGroup(li);};name.prepend(fold);}rows.push([li,row]);name.title=layer.name;label.onclick=()=>host.selectLayer(li);row.append(name);p.frames.forEach((f,i)=>{const b=document.createElement('button');b.className='ase-cel'+(i===host.frame()?' current-frame':'');b.dataset.frame=i;const nonempty=!layer.group&&f.cels[li].some((v,k)=>k%4===3&&v>0);b.textContent=layer.group?'':nonempty?'●':'○';b.setAttribute('aria-label',`${layer.name} · 第 ${i+1} 帧 · ${layer.group?'图层组':nonempty?'有像素':'空白'}`);b.onclick=()=>host.selectCell(i,li);row.append(b);});content.append(row);}detail.append(content);detail.scrollLeft=left;detail.scrollTop=top;detail.querySelectorAll("[data-frame]").forEach(b=>(columns[+b.dataset.frame]??=[]).push(b));highlight();}
- function highlight(){const f=host.frame(),l=host.layer();if(lastFrame!==f){for(const [index,on] of [[lastFrame,false],[f,true]])for(const b of columns[index]||[])b.classList.toggle(b.classList.contains('ase-cel')?'current-frame':'active',on);lastFrame=f;}if(lastLayer!==l){for(const [li,row] of rows)row.classList.toggle('current-layer',li===l);lastLayer=l;}}
- return {render,resetPlayback(){cursor=playbackCursor(activeTag(),host.project().frames.length,host.frame());return cursor.first;},next(){return cursor?.next()??null;},highlight,activeTag,isDetailed:()=>detailed};
+export function tagSequence(tag, count) {
+  const from = tag?.from ?? 0,
+    to = tag?.to ?? count - 1,
+    forward = Array.from({ length: to - from + 1 }, (_, i) => from + i),
+    direction = tag?.direction ?? 0;
+  if (direction === 1) return forward.reverse();
+  if (direction === 2) return forward.concat(forward.slice(1, -1).reverse());
+  if (direction === 3) return forward.reverse().concat(forward.slice(1, -1).reverse());
+  return forward;
+}
+export function shiftTags(p, index, remove = false) {
+  if (!p.tags) return;
+  p.tags = p.tags.flatMap((tag) => {
+    const t = { ...tag };
+    if (remove) {
+      if (t.from === index && t.to === index) return [];
+      if (t.from > index) t.from--;
+      if (t.to >= index) t.to--;
+    } else {
+      if (t.from >= index) t.from++;
+      if (t.to >= index) t.to++;
+    }
+    return [t];
+  });
+}
+export function layerOrder(layers) {
+  const children = new Map();
+  const stack = [];
+  layers.forEach((l, i) => {
+    const depth = l.level || 0;
+    stack.length = depth;
+    const parent = depth ? stack[depth - 1] : -1;
+    if (!children.has(parent)) children.set(parent, []);
+    children.get(parent).push(i);
+    if (l.group) stack[depth] = i;
+  });
+  const out = [];
+  function visit(parent) {
+    for (const i of [...(children.get(parent) || [])].reverse()) {
+      out.push(i);
+      if (layers[i].group) visit(i);
+    }
+  }
+  visit(-1);
+  return out;
+}
+export function playbackCursor(tag, count, current = 0) {
+  const sequence = tagSequence(tag, count),
+    ping = (tag?.direction || 0) >= 2,
+    size = tag ? tag.to - tag.from + 1 : count;
+  let position = Math.max(0, sequence.indexOf(current)),
+    played = position;
+  const limit = tag?.repeat
+    ? ping && size > 1
+      ? 1 + tag.repeat * (size - 1)
+      : tag.repeat * size
+    : Infinity;
+  return {
+    first: sequence[position],
+    next() {
+      if (++played >= limit) return null;
+      position = (position + 1) % sequence.length;
+      return sequence[position];
+    },
+  };
+}
+export function createTimeline(host) {
+  const timeline = document.querySelector('#timeline'),
+    frames = document.querySelector('#frames'),
+    bar = document.createElement('div'),
+    detail = document.createElement('div');
+  bar.className = 'animation-tag-toolbar';
+  bar.innerHTML =
+    '<select id="animation-tag" aria-label="播放动画片段"></select><span id="tag-summary"></span><label class="timeline-speed"><input id="playback-speed" aria-label="整体预览倍速" type="number" min="0.1" max="8" step="0.05" value="1"><span>×</span></label><button id="timeline-detail">图层帧格</button>';
+  detail.id = 'ase-timeline';
+  timeline.insertBefore(bar, frames);
+  timeline.insertBefore(detail, frames);
+  let detailed = false,
+    active = -1,
+    context = '',
+    cursor = null,
+    lastKey = '',
+    columns = [],
+    rows = [],
+    lastFrame = -1,
+    lastLayer = -1;
+  const select = bar.querySelector('select');
+  bar.querySelector('#playback-speed').value = host.speed();
+  bar.querySelector('#playback-speed').oninput = (e) => {
+    const value = Number(e.target.value);
+    if (value >= 0.1 && value <= 8) host.setSpeed(value);
+  };
+  bar.querySelector('#playback-speed').onchange = (e) => {
+    host.setSpeed(Number(e.target.value));
+    e.target.value = host.speed();
+  };
+  function activeTag() {
+    return host.project().tags?.[active];
+  }
+  function choose(index) {
+    host.stop();
+    active = index;
+    const t = activeTag();
+    if (t) host.selectFrame(t.from);
+    render();
+    if (t && detailed) {
+      const cell =
+        parseFloat(getComputedStyle(detail.firstElementChild).getPropertyValue('--cell')) || 26;
+      detail.scrollLeft = Math.max(0, t.from * cell - 26);
+      detail.scrollTop = 0;
+    }
+  }
+  select.onchange = () => choose(+select.value);
+  bar.querySelector('#timeline-detail').onclick = () => {
+    detailed = !detailed;
+    render();
+    host.resize();
+    host.refresh?.();
+  };
+  const grip = document.createElement('div');
+  grip.id = 'timeline-resize';
+  grip.tabIndex = 0;
+  grip.setAttribute('role', 'separator');
+  grip.setAttribute('aria-label', '调整时间轴高度');
+  grip.setAttribute('aria-orientation', 'horizontal');
+  timeline.prepend(grip);
+  let resizing = null;
+  const setHeight = (value) => {
+    const height = Math.round(Math.max(260, Math.min(innerHeight - 210, value)));
+    document.body.style.setProperty('--timeline-expanded', height + 'px');
+    detail.style.height = Math.max(150, height - 104) + 'px';
+    grip.setAttribute('aria-valuenow', height);
+    host.resize();
+  };
+  window.addEventListener('resize', () => {
+    const value = parseFloat(document.body.style.getPropertyValue('--timeline-expanded'));
+    if (detailed && value) setHeight(value);
+  });
+  grip.onpointerdown = (e) => {
+    if (!detailed) return;
+    host.stop();
+    resizing = { y: e.clientY, height: timeline.getBoundingClientRect().height };
+    grip.setPointerCapture(e.pointerId);
+    document.body.classList.add('timeline-resizing');
+    e.preventDefault();
+  };
+  grip.onpointermove = (e) => {
+    if (resizing) setHeight(resizing.height + resizing.y - e.clientY);
+  };
+  grip.onpointerup = grip.onpointercancel = () => {
+    resizing = null;
+    document.body.classList.remove('timeline-resizing');
+  };
+  grip.onkeydown = (e) => {
+    if (!detailed) return;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHeight(timeline.getBoundingClientRect().height + (e.key === 'ArrowUp' ? 30 : -30));
+    }
+  };
+  function render() {
+    const p = host.project(),
+      key = host.id() + ':' + host.revision() + ':' + detailed + ':' + active;
+    if (key === lastKey) {
+      highlight();
+      return;
+    }
+    const previousKey = host.id() + ':' + (host.revision() - 1) + ':' + detailed + ':' + active;
+    const affected = host.changedFrames?.();
+    if (lastKey === previousKey && affected) {
+      lastKey = key;
+      for (const [li, row] of rows) {
+        for (const i of affected) {
+          const cell = row.children[i + 1];
+          if (!cell) continue;
+          const layer = p.layers[li];
+          const nonempty =
+            !layer.group && p.frames[i].cels[li].some((v, k) => k % 4 === 3 && v > 0);
+          cell.textContent = layer.group ? '' : nonempty ? '●' : '○';
+          cell.setAttribute(
+            'aria-label',
+            `${layer.name} · 第 ${i + 1} 帧 · ${layer.group ? '图层组' : nonempty ? '有像素' : '空白'}`,
+          );
+        }
+      }
+      highlight();
+      return;
+    }
+    lastKey = key;
+    if (context !== host.id()) {
+      context = host.id();
+      active = -1;
+      detailed = !!p.tags?.length;
+    }
+    if (active >= (p.tags?.length || 0)) active = -1;
+    select.replaceChildren(new Option('全部帧', -1));
+    (p.tags || []).forEach((t, i) =>
+      select.add(new Option(`${t.name} · ${t.from + 1}–${t.to + 1}`, i)),
+    );
+    select.value = String(active);
+    const tag = activeTag();
+    bar.querySelector('#tag-summary').textContent = tag
+      ? `${tag.to - tag.from + 1} 帧 · ${['正向', '反向', '往返', '反向往返'][tag.direction]} · ${tag.repeat ? tag.repeat + ' 次' : '循环'}`
+      : `${p.frames.length} 帧 · ${p.tags?.length || 0} 个动画标签`;
+    bar.querySelector('#timeline-detail').textContent = detailed ? '缩略图' : '图层帧格';
+    timeline.classList.toggle('timeline-detailed', detailed);
+    document.body.classList.toggle('timeline-detailed', detailed);
+    frames.hidden = detailed;
+    detail.hidden = !detailed;
+    columns = [];
+    rows = [];
+    lastFrame = -1;
+    lastLayer = -1;
+    if (!detailed) return;
+    const left = detail.scrollLeft,
+      top = detail.scrollTop;
+    detail.replaceChildren();
+    const content = document.createElement('div');
+    content.className = 'ase-track-content';
+    content.style.setProperty('--frame-count', p.frames.length);
+    const labels = document.createElement('div');
+    labels.className = 'ase-tag-tracks';
+    const lanes = [];
+    for (const [i, t] of (p.tags || []).entries()) {
+      let lane = lanes.findIndex((end) => end < t.from);
+      if (lane < 0) lane = lanes.length;
+      lanes[lane] = t.to;
+      const b = document.createElement('button');
+      b.className = 'ase-tag' + (i === active ? ' active' : '');
+      b.style.gridColumn = `${t.from + 2} / ${t.to + 3}`;
+      b.style.gridRow = String(lane + 1);
+      b.style.borderColor = t.color || '#75bde8';
+      b.textContent = t.name;
+      b.title = `${t.name} · 第 ${t.from + 1}–${t.to + 1} 帧`;
+      b.onclick = () => choose(i);
+      labels.append(b);
+    }
+    if (!p.tags?.length) {
+      const hint = document.createElement('span');
+      hint.textContent = '此文件没有动画标签';
+      hint.className = 'ase-no-tags';
+      labels.append(hint);
+    }
+    content.style.setProperty('--tag-height', Math.max(1, lanes.length) * 25 + 3 + 'px');
+    content.append(labels);
+    const header = document.createElement('div');
+    header.className = 'ase-grid-row ase-frame-header';
+    const title = document.createElement('span');
+    title.className = 'ase-layer-name';
+    title.textContent = '图层 / 帧 · 毫秒';
+    header.append(title);
+    p.frames.forEach((f, i) => {
+      const b = document.createElement('button');
+      b.dataset.frame = i;
+      b.className = i === host.frame() ? 'active' : '';
+      b.innerHTML = `<strong>${i + 1}</strong><small>${f.duration}</small>`;
+      b.setAttribute('aria-label', `跳到第 ${i + 1} 帧，${f.duration} 毫秒`);
+      b.onclick = () => host.selectFrame(i);
+      header.append(b);
+    });
+    content.append(header);
+    let hiddenDepth = Infinity;
+    for (const li of layerOrder(p.layers)) {
+      const depth = p.layers[li].level || 0;
+      if (depth > hiddenDepth) continue;
+      hiddenDepth = p.layers[li].group && p.layers[li].collapsed ? depth : Infinity;
+      const layer = p.layers[li],
+        row = document.createElement('div');
+      row.className = 'ase-grid-row' + (li === host.layer() ? ' current-layer' : '');
+      const name = document.createElement('div');
+      name.className = 'ase-layer-name';
+      name.style.paddingLeft = 8 + (layer.level || 0) * 12 + 'px';
+      const label = document.createElement('button');
+      label.className = 'ase-layer-select';
+      label.textContent = layer.name;
+      name.append(label);
+      if (layer.group) {
+        const fold = document.createElement('button');
+        fold.className = 'group-disclosure';
+        fold.textContent = layer.collapsed ? '▸' : '▾';
+        fold.setAttribute('role', 'button');
+        fold.setAttribute(
+          'aria-label',
+          (layer.collapsed ? '展开' : '折叠') + '图层组 ' + layer.name,
+        );
+        fold.onclick = (e) => {
+          e.stopPropagation();
+          host.toggleGroup(li);
+        };
+        name.prepend(fold);
+      }
+      rows.push([li, row]);
+      name.title = layer.name;
+      label.onclick = () => host.selectLayer(li);
+      row.append(name);
+      p.frames.forEach((f, i) => {
+        const b = document.createElement('button');
+        b.className = 'ase-cel' + (i === host.frame() ? ' current-frame' : '');
+        b.dataset.frame = i;
+        const nonempty = !layer.group && f.cels[li].some((v, k) => k % 4 === 3 && v > 0);
+        b.textContent = layer.group ? '' : nonempty ? '●' : '○';
+        b.setAttribute(
+          'aria-label',
+          `${layer.name} · 第 ${i + 1} 帧 · ${layer.group ? '图层组' : nonempty ? '有像素' : '空白'}`,
+        );
+        b.onclick = () => host.selectCell(i, li);
+        row.append(b);
+      });
+      content.append(row);
+    }
+    detail.append(content);
+    detail.scrollLeft = left;
+    detail.scrollTop = top;
+    detail
+      .querySelectorAll('[data-frame]')
+      .forEach((b) => (columns[+b.dataset.frame] ??= []).push(b));
+    highlight();
+  }
+  function highlight() {
+    const f = host.frame(),
+      l = host.layer();
+    if (lastFrame !== f) {
+      for (const [index, on] of [
+        [lastFrame, false],
+        [f, true],
+      ])
+        for (const b of columns[index] || [])
+          b.classList.toggle(b.classList.contains('ase-cel') ? 'current-frame' : 'active', on);
+      lastFrame = f;
+    }
+    if (lastLayer !== l) {
+      for (const [li, row] of rows) row.classList.toggle('current-layer', li === l);
+      lastLayer = l;
+    }
+  }
+  return {
+    render,
+    resetPlayback() {
+      cursor = playbackCursor(activeTag(), host.project().frames.length, host.frame());
+      return cursor.first;
+    },
+    next() {
+      return cursor?.next() ?? null;
+    },
+    highlight,
+    activeTag,
+    isDetailed: () => detailed,
+  };
 }

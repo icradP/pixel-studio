@@ -1,2 +1,10 @@
-import fs from 'node:fs';import assert from 'node:assert/strict';import {deserialize} from '../dist/engine.js';import {readAse} from '../dist/ase.js';
-const source=deserialize(fs.readFileSync('tests/output/demo.pixel','utf8'));const b=fs.readFileSync('tests/output/native-resaved.aseprite');const {project:p}=await readAse(b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength));p.name=source.name;assert.deepEqual(p,source);console.log('Native compressed Aseprite round trip: all layers / frames / pixels match');
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+import { deserialize } from '../dist/engine.js';
+import { readAse } from '../dist/ase.js';
+const source = deserialize(fs.readFileSync('tests/output/demo.pixel', 'utf8'));
+const b = fs.readFileSync('tests/output/native-resaved.aseprite');
+const { project: p } = await readAse(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength));
+p.name = source.name;
+assert.deepEqual(p, source);
+console.log('Native compressed Aseprite round trip: all layers / frames / pixels match');

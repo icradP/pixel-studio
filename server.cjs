@@ -1,2 +1,44 @@
-const http=require('node:http'),fs=require('node:fs'),path=require('node:path');const root=path.join(__dirname,'dist');const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.webmanifest':'application/manifest+json','.svg':'image/svg+xml','.png':'image/png'};
-http.createServer((req,res)=>{if(!['GET','HEAD'].includes(req.method)){res.writeHead(405);return res.end();}let file;try{const pathname=decodeURIComponent(new URL(req.url,'http://localhost').pathname);file=path.resolve(root,'.'+pathname+(pathname.endsWith('/')?'index.html':''));if(!file.startsWith(root+path.sep)){res.writeHead(403);return res.end();}}catch{res.writeHead(400);return res.end();}fs.readFile(file,(err,b)=>{if(err){res.writeHead(404);return res.end('Not found');}res.writeHead(200,{'Content-Type':types[path.extname(file)]||'application/octet-stream','Cache-Control':'no-cache'});res.end(req.method==='HEAD'?undefined:b);});}).listen(Number(process.env.PIXEL_PORT)||13838,'127.0.0.1',()=>console.log('Pixel Studio: http://127.0.0.1:13838/'));
+const http = require('node:http'),
+  fs = require('node:fs'),
+  path = require('node:path');
+const root = path.join(__dirname, 'dist');
+const port = Number(process.env.PIXEL_PORT) || 13838;
+const types = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.webmanifest': 'application/manifest+json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+};
+http
+  .createServer((req, res) => {
+    if (!['GET', 'HEAD'].includes(req.method)) {
+      res.writeHead(405);
+      return res.end();
+    }
+    let file;
+    try {
+      const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+      file = path.resolve(root, '.' + pathname + (pathname.endsWith('/') ? 'index.html' : ''));
+      if (!file.startsWith(root + path.sep)) {
+        res.writeHead(403);
+        return res.end();
+      }
+    } catch {
+      res.writeHead(400);
+      return res.end();
+    }
+    fs.readFile(file, (err, b) => {
+      if (err) {
+        res.writeHead(404);
+        return res.end('Not found');
+      }
+      res.writeHead(200, {
+        'Content-Type': types[path.extname(file)] || 'application/octet-stream',
+        'Cache-Control': 'no-cache',
+      });
+      res.end(req.method === 'HEAD' ? undefined : b);
+    });
+  })
+  .listen(port, '127.0.0.1', () => console.log(`Pixel Studio: http://127.0.0.1:${port}/`));

@@ -1,13 +1,132 @@
-<!doctype html><meta charset="utf-8"><title>画室渲染验证</title><style>body{background:#1c252e;color:#eef;font:16px system-ui;padding:24px}button{padding:14px;margin:10px}canvas{border:1px solid #789;max-width:100%;height:auto}pre{white-space:pre-wrap}</style><h1>智能清晰渲染验证</h1><button id="run">运行边缘与播放测试</button><pre id="result">等待测试</pre><canvas id="view" width="2048" height="1536" style="width:1024px"></canvas><script type="module">
-import {createPixelRenderer} from '/dist/pixel-renderer.js';
-const view=document.querySelector('canvas'),ctx=view.getContext('2d',{willReadFrequently:true}),renderer=createPixelRenderer(),result=document.querySelector('#result');
-document.querySelector('#run').onclick=async()=>{try{
- const source=document.createElement('canvas');source.width=source.height=4;const x=source.getContext('2d');for(let y=0;y<4;y++)for(let i=0;i<4;i++){x.fillStyle=(y+i)%2?'white':'black';x.fillRect(i,y,1,1);}
- const camera={scale:20.25,x:.13,y:.31,angle:.31};view.width=view.height=200;ctx.clearRect(0,0,200,200);if(!renderer.draw(ctx,source,camera,100,100,2,'auto'))throw Error('WebGL unavailable');
- const pixels=ctx.getImageData(0,0,200,200).data;let interior=0,errors=0,edge=0;for(let y=0;y<200;y++)for(let i=0;i<200;i++){const qx=i+.5-(50+camera.x)*2,qy=y+.5-(50+camera.y)*2,px=(qx*Math.cos(camera.angle)+qy*Math.sin(camera.angle))/40.5+2,py=(-qx*Math.sin(camera.angle)+qy*Math.cos(camera.angle))/40.5+2;if(px<0||py<0||px>=4||py>=4)continue;const k=(y*200+i)*4,fx=px-Math.floor(px),fy=py-Math.floor(py);if(fx>.15&&fx<.85&&fy>.15&&fy<.85){interior++;const expected=(Math.floor(px)+Math.floor(py))%2?255:0;if(Math.abs(pixels[k]-expected)>1||pixels[k+3]!==255)errors++;}else if(pixels[k]>2&&pixels[k]<253&&pixels[k+3]===255)edge++;}
- if(errors||!interior||!edge)throw Error(JSON.stringify({interior,errors,edge}));
- result.textContent=JSON.stringify({pixelInteriorsChecked:interior,interiorErrors:errors,antialiasedEdgePixels:edge,status:'正在测试 90 次高分辨率绘制…'},null,2);
- view.width=2048;view.height=1536;const sources=Array.from({length:12},(_,f)=>{const c=document.createElement('canvas');c.width=32;c.height=128;const x=c.getContext('2d');x.fillStyle='#486775';x.fillRect(0,0,32,128);x.fillStyle='#ffba94';x.fillRect(5+f,12,7,100);return c;});const times=[],gaps=[];let previous=0;for(let i=0;i<90;i++){const now=await new Promise(requestAnimationFrame);if(previous)gaps.push(now-previous);previous=now;const start=performance.now();ctx.clearRect(0,0,2048,1536);renderer.draw(ctx,sources[i%12],{scale:5.125,x:0,y:0,angle:.12},1024,768,2,'auto');times.push(performance.now()-start);}
- const percentile=(a,p)=>[...a].sort((a,b)=>a-b)[Math.floor((a.length-1)*p)];result.textContent=JSON.stringify({passed:true,pixelInteriorsChecked:interior,interiorErrors:errors,antialiasedEdgePixels:edge,viewport:'1024×768 @2x',draws:90,medianDrawMs:percentile(times,.5),p95DrawMs:percentile(times,.95),medianAnimationFrameMs:percentile(gaps,.5),p95AnimationFrameMs:percentile(gaps,.95)},null,2);
- }catch(e){result.textContent='FAILED: '+e.message;}};
+<!doctype html><meta charset="utf-8" /><title>画室渲染验证</title
+><style>
+  body {
+    background: #1c252e;
+    color: #eef;
+    font: 16px system-ui;
+    padding: 24px;
+  }
+  button {
+    padding: 14px;
+    margin: 10px;
+  }
+  canvas {
+    border: 1px solid #789;
+    max-width: 100%;
+    height: auto;
+  }
+  pre {
+    white-space: pre-wrap;
+  }
+</style>
+<h1>智能清晰渲染验证</h1>
+<button id="run">运行边缘与播放测试</button>
+<pre id="result">等待测试</pre>
+<canvas id="view" width="2048" height="1536" style="width: 1024px"></canvas>
+<script type="module">
+  import { createPixelRenderer } from '/dist/pixel-renderer.js';
+  const view = document.querySelector('canvas'),
+    ctx = view.getContext('2d', { willReadFrequently: true }),
+    renderer = createPixelRenderer(),
+    result = document.querySelector('#result');
+  document.querySelector('#run').onclick = async () => {
+    try {
+      const source = document.createElement('canvas');
+      source.width = source.height = 4;
+      const x = source.getContext('2d');
+      for (let y = 0; y < 4; y++)
+        for (let i = 0; i < 4; i++) {
+          x.fillStyle = (y + i) % 2 ? 'white' : 'black';
+          x.fillRect(i, y, 1, 1);
+        }
+      const camera = { scale: 20.25, x: 0.13, y: 0.31, angle: 0.31 };
+      view.width = view.height = 200;
+      ctx.clearRect(0, 0, 200, 200);
+      if (!renderer.draw(ctx, source, camera, 100, 100, 2, 'auto'))
+        throw Error('WebGL unavailable');
+      const pixels = ctx.getImageData(0, 0, 200, 200).data;
+      let interior = 0,
+        errors = 0,
+        edge = 0;
+      for (let y = 0; y < 200; y++)
+        for (let i = 0; i < 200; i++) {
+          const qx = i + 0.5 - (50 + camera.x) * 2,
+            qy = y + 0.5 - (50 + camera.y) * 2,
+            px = (qx * Math.cos(camera.angle) + qy * Math.sin(camera.angle)) / 40.5 + 2,
+            py = (-qx * Math.sin(camera.angle) + qy * Math.cos(camera.angle)) / 40.5 + 2;
+          if (px < 0 || py < 0 || px >= 4 || py >= 4) continue;
+          const k = (y * 200 + i) * 4,
+            fx = px - Math.floor(px),
+            fy = py - Math.floor(py);
+          if (fx > 0.15 && fx < 0.85 && fy > 0.15 && fy < 0.85) {
+            interior++;
+            const expected = (Math.floor(px) + Math.floor(py)) % 2 ? 255 : 0;
+            if (Math.abs(pixels[k] - expected) > 1 || pixels[k + 3] !== 255) errors++;
+          } else if (pixels[k] > 2 && pixels[k] < 253 && pixels[k + 3] === 255) edge++;
+        }
+      if (errors || !interior || !edge) throw Error(JSON.stringify({ interior, errors, edge }));
+      result.textContent = JSON.stringify(
+        {
+          pixelInteriorsChecked: interior,
+          interiorErrors: errors,
+          antialiasedEdgePixels: edge,
+          status: '正在测试 90 次高分辨率绘制…',
+        },
+        null,
+        2,
+      );
+      view.width = 2048;
+      view.height = 1536;
+      const sources = Array.from({ length: 12 }, (_, f) => {
+        const c = document.createElement('canvas');
+        c.width = 32;
+        c.height = 128;
+        const x = c.getContext('2d');
+        x.fillStyle = '#486775';
+        x.fillRect(0, 0, 32, 128);
+        x.fillStyle = '#ffba94';
+        x.fillRect(5 + f, 12, 7, 100);
+        return c;
+      });
+      const times = [],
+        gaps = [];
+      let previous = 0;
+      for (let i = 0; i < 90; i++) {
+        const now = await new Promise(requestAnimationFrame);
+        if (previous) gaps.push(now - previous);
+        previous = now;
+        const start = performance.now();
+        ctx.clearRect(0, 0, 2048, 1536);
+        renderer.draw(
+          ctx,
+          sources[i % 12],
+          { scale: 5.125, x: 0, y: 0, angle: 0.12 },
+          1024,
+          768,
+          2,
+          'auto',
+        );
+        times.push(performance.now() - start);
+      }
+      const percentile = (a, p) => [...a].sort((a, b) => a - b)[Math.floor((a.length - 1) * p)];
+      result.textContent = JSON.stringify(
+        {
+          passed: true,
+          pixelInteriorsChecked: interior,
+          interiorErrors: errors,
+          antialiasedEdgePixels: edge,
+          viewport: '1024×768 @2x',
+          draws: 90,
+          medianDrawMs: percentile(times, 0.5),
+          p95DrawMs: percentile(times, 0.95),
+          medianAnimationFrameMs: percentile(gaps, 0.5),
+          p95AnimationFrameMs: percentile(gaps, 0.95),
+        },
+        null,
+        2,
+      );
+    } catch (e) {
+      result.textContent = 'FAILED: ' + e.message;
+    }
+  };
 </script>

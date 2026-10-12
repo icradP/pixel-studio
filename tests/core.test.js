@@ -1,8 +1,81 @@
-import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import {deflateSync} from 'node:zlib';
-import {blank,composite,serialize,deserialize,flood,line,demo,validate} from '../dist/engine.js';import {readAse,writeAse} from '../dist/ase.js';import {encodeGif} from '../dist/gif.js';
-test('fill respects boundaries and transparent pixels',()=>{const p=blank(5,5),c=p.frames[0].cels[0];line(2,0,2,4,(x,y)=>c.set([255,0,0,255],(y*5+x)*4));flood(c,5,5,0,0,[0,255,0,255]);assert.equal(c[(4*5+1)*4+1],255);assert.equal(c[(4*5+3)*4+3],0);assert.equal(c[(3*5+2)*4],255);});
-test('compositing applies alpha and layer opacity',()=>{const p=blank(1,1);p.layers.push({name:'top',visible:true,opacity:128});p.frames[0].cels[0].set([255,0,0,255]);p.frames[0].cels.push(new Uint8ClampedArray([0,0,255,255]));assert.deepEqual([...composite(p,0)],[127,0,128,255]);p.layers[1].visible=false;assert.deepEqual([...composite(p,0)],[255,0,0,255]);});
-test('project backup round trip and size guards',()=>{const p=demo(),q=deserialize(serialize(p));assert.deepEqual(q,p);assert.throws(()=>validate({...p,w:0}));assert.throws(()=>deserialize('{"format":"x"}'));});
-test('Aseprite round trip preserves names, pixels, visibility and timings',async()=>{const p=demo();p.layers[1].opacity=123;p.layers[2].visible=false;const bytes=writeAse(p);const {project:q}=await readAse(bytes.buffer);q.name=p.name;assert.deepEqual(q,p);fs.mkdirSync('tests/output',{recursive:true});fs.writeFileSync('tests/output/demo.aseprite',bytes);fs.writeFileSync('tests/output/demo.gif',encodeGif(demo()));fs.writeFileSync('tests/output/demo.pixel',serialize(p));});
-test('compressed cels from official format are decoded',async()=>{const p=blank(2,2),c=p.frames[0].cels[0];c.set([50,100,200,255,255,255,255,128]);const bytes=writeAse(p);const v=new DataView(bytes.buffer);let pos=144;while(v.getUint16(pos+4,true)!==0x2005)pos+=v.getUint32(pos,true);const old=v.getUint32(pos,true),compressed=deflateSync(c),result=new Uint8Array(pos+26+compressed.length);result.set(bytes.subarray(0,pos+26));result.set(compressed,pos+26);const d=new DataView(result.buffer);d.setUint32(0,result.length,true);d.setUint32(128,result.length-128,true);d.setUint32(pos,26+compressed.length,true);d.setUint16(pos+13,2,true);assert.deepEqual((await readAse(result.buffer)).project.frames[0].cels[0],c);});
-test('malformed Aseprite and unsupported blending do not silently lose data',async()=>{const p=blank(2,2),bytes=writeAse(p);const v=new DataView(bytes.buffer);v.setUint16(144+16,1,true);await assert.rejects(readAse(bytes.buffer),/混合/);await assert.rejects(readAse(new Uint8Array([1,2]).buffer));});
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { deflateSync } from 'node:zlib';
+import {
+  blank,
+  composite,
+  serialize,
+  deserialize,
+  flood,
+  line,
+  demo,
+  validate,
+} from '../dist/engine.js';
+import { readAse, writeAse } from '../dist/ase.js';
+import { encodeGif } from '../dist/gif.js';
+test('fill respects boundaries and transparent pixels', () => {
+  const p = blank(5, 5),
+    c = p.frames[0].cels[0];
+  line(2, 0, 2, 4, (x, y) => c.set([255, 0, 0, 255], (y * 5 + x) * 4));
+  flood(c, 5, 5, 0, 0, [0, 255, 0, 255]);
+  assert.equal(c[(4 * 5 + 1) * 4 + 1], 255);
+  assert.equal(c[(4 * 5 + 3) * 4 + 3], 0);
+  assert.equal(c[(3 * 5 + 2) * 4], 255);
+});
+test('compositing applies alpha and layer opacity', () => {
+  const p = blank(1, 1);
+  p.layers.push({ name: 'top', visible: true, opacity: 128 });
+  p.frames[0].cels[0].set([255, 0, 0, 255]);
+  p.frames[0].cels.push(new Uint8ClampedArray([0, 0, 255, 255]));
+  assert.deepEqual([...composite(p, 0)], [127, 0, 128, 255]);
+  p.layers[1].visible = false;
+  assert.deepEqual([...composite(p, 0)], [255, 0, 0, 255]);
+});
+test('project backup round trip and size guards', () => {
+  const p = demo(),
+    q = deserialize(serialize(p));
+  assert.deepEqual(q, p);
+  assert.throws(() => validate({ ...p, w: 0 }));
+  assert.throws(() => deserialize('{"format":"x"}'));
+});
+test('Aseprite round trip preserves names, pixels, visibility and timings', async () => {
+  const p = demo();
+  p.layers[1].opacity = 123;
+  p.layers[2].visible = false;
+  const bytes = writeAse(p);
+  const { project: q } = await readAse(bytes.buffer);
+  q.name = p.name;
+  assert.deepEqual(q, p);
+  fs.mkdirSync('tests/output', { recursive: true });
+  fs.writeFileSync('tests/output/demo.aseprite', bytes);
+  fs.writeFileSync('tests/output/demo.gif', encodeGif(demo()));
+  fs.writeFileSync('tests/output/demo.pixel', serialize(p));
+});
+test('compressed cels from official format are decoded', async () => {
+  const p = blank(2, 2),
+    c = p.frames[0].cels[0];
+  c.set([50, 100, 200, 255, 255, 255, 255, 128]);
+  const bytes = writeAse(p);
+  const v = new DataView(bytes.buffer);
+  let pos = 144;
+  while (v.getUint16(pos + 4, true) !== 0x2005) pos += v.getUint32(pos, true);
+  const compressed = deflateSync(c),
+    result = new Uint8Array(pos + 26 + compressed.length);
+  result.set(bytes.subarray(0, pos + 26));
+  result.set(compressed, pos + 26);
+  const d = new DataView(result.buffer);
+  d.setUint32(0, result.length, true);
+  d.setUint32(128, result.length - 128, true);
+  d.setUint32(pos, 26 + compressed.length, true);
+  d.setUint16(pos + 13, 2, true);
+  assert.deepEqual((await readAse(result.buffer)).project.frames[0].cels[0], c);
+});
+test('malformed Aseprite and unsupported blending do not silently lose data', async () => {
+  const p = blank(2, 2),
+    bytes = writeAse(p);
+  const v = new DataView(bytes.buffer);
+  v.setUint16(144 + 16, 1, true);
+  await assert.rejects(readAse(bytes.buffer), /混合/);
+  await assert.rejects(readAse(new Uint8Array([1, 2]).buffer));
+});
