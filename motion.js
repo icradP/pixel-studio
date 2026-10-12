@@ -7,14 +7,20 @@ export function stopMotion(element) {
   running.delete(element);
 }
 export function animateSurface(element, opening) {
+  const current = running.has(element)
+    ? { opacity: getComputedStyle(element).opacity, transform: getComputedStyle(element).transform }
+    : null;
   stopMotion(element);
   if (reducedMotion()) return Promise.resolve();
-  const hidden = { opacity: 0, transform: 'translateY(-5px) scale(.98)' };
+  const hidden = { opacity: 0, transform: 'translateY(-7px) scale(.975)' };
   const visible = { opacity: 1, transform: 'translateY(0) scale(1)' };
-  const animation = element.animate(opening ? [hidden, visible] : [visible, hidden], {
-    duration: opening ? 180 : 120,
-    easing: 'cubic-bezier(.2,.8,.2,1)',
-  });
+  const animation = element.animate(
+    [current || (opening ? hidden : visible), opening ? visible : hidden],
+    {
+      duration: opening ? 220 : 150,
+      easing: 'cubic-bezier(.18,.82,.25,1)',
+    },
+  );
   running.set(element, animation);
   return animation.finished
     .catch(() => {})

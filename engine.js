@@ -38,7 +38,7 @@ export function validate(p) {
     p.frames.length > LIMITS.frames ||
     p.w * p.h * p.layers.length * p.frames.length > MAX_PIXELS
   )
-    throw Error('项目尺寸或图层、帧数量超出限制（最大 512 × 512，总计 800 万像素）。');
+    throw Error('项目尺寸或图层、帧数量超出限制（最大 1024 × 1024，总计 800 万像素）。');
   if (typeof p.name !== 'string' || p.name.length > 160) throw Error('项目名称无效');
   p.layers.forEach((l) => {
     if (

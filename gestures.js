@@ -2,12 +2,13 @@
 // width is deliberately irrelevant: a thumb is not reliably smaller than a palm.
 export function pinchCamera(base, start, current) {
   const ratio =
-    Math.max(0.25, Math.min(60, (base.scale * current.distance) / start.distance)) / base.scale;
+    Math.max(0.05, Math.min(60, (base.scale * current.distance) / start.distance)) / base.scale;
   let da = current.angle - start.angle;
   da = Math.atan2(Math.sin(da), Math.cos(da));
   const ox = start.x - base.x,
     oy = start.y - base.y;
   return {
+    ...base,
     scale: base.scale * ratio,
     angle: base.angle + da,
     x: current.x - ratio * (ox * Math.cos(da) - oy * Math.sin(da)),

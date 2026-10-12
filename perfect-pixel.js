@@ -67,13 +67,13 @@ export function getPerfectPixel({w,h,data},{grid=null,sampleMethod='majority',re
  if(!Number.isInteger(w)||!Number.isInteger(h)||w<1||h<1||w>1536||h>1536||data?.length!==w*h*4)throw Error('处理图片尺寸无效，最长边不得超过 1536');
  if(!['center','median','majority'].includes(sampleMethod)||!Number.isFinite(refineIntensity)||refineIntensity<0||refineIntensity>.49||![0,16,32,64,128].includes(colors))throw Error('转换参数无效');
  const gray=Float64Array.from({length:w*h},(_,i)=>(.299*data[i*4]+.587*data[i*4+1]+.114*data[i*4+2])*data[i*4+3]/255),[gx,gy]=gradients(gray,w,h);let method='manual',size=grid;
- if(grid){if(grid.length!==2||grid.some((n,i)=>!Number.isInteger(n)||n<1||n>Math.min(512,i?h:w)))throw Error('输出宽高必须是 1–512 且不大于处理图');}
+ if(grid){if(grid.length!==2||grid.some((n,i)=>!Number.isInteger(n)||n<1||n>Math.min(1024,i?h:w)))throw Error('输出宽高必须是 1–1024 且不大于处理图');}
  else{size=fftGrid(gray,w,h);method='fft';if(size){const a=w/size[0],b=h/size[1];if(Math.min(a,b)<4||Math.max(a,b)>20||Math.max(a/b,b/a)>1.5)size=null;}
   if(!size){method='gradient';const a=gradientCount(gx),b=gradientCount(gy);if(a&&b)size=[a,b];}
   if(!size)throw Error('未识别到稳定的像素网格，请切换「手动尺寸」再预览。');
   const a=w/size[0],b=h/size[1],cell=Math.max(a/b,b/a)>1.5?Math.min(a,b):(a+b)/2;size=[Math.max(1,Math.round(w/cell)),Math.max(1,Math.round(h/cell))];
  }
  const xs=refineAxis(w,size[0],gx,refineIntensity,!!grid),ys=refineAxis(h,size[1],gy,refineIntensity,!!grid),ow=xs.length-1,oh=ys.length-1;
- if(ow>512||oh>512)throw Error('识别结果超过画室 512 像素上限，请指定较小的手动尺寸。');
+ if(ow>1024||oh>1024)throw Error('识别结果超过画室 1024 像素上限，请指定较小的手动尺寸。');
  return {w:ow,h:oh,data:reducePalette(sample(data,w,xs,ys,sampleMethod),colors),method,estimated:size};
 }

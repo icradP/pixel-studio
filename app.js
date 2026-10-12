@@ -1,3 +1,4 @@
+import { canvasPoint } from './camera.js';
 import { LIMITS, projectUsage, mebibytes } from './limits.js';
 import { installControls, updateRanges } from './controls.js';
 import { openProjectStore } from './project-store.js';
@@ -71,6 +72,8 @@ const icons = {
   brush: 'M14 4l6 6M4 20l3-7L17 3l4 4L11 17z',
   export: 'M12 15V3m-4 4l4-4 4 4M5 11v10h14V11',
   fit: 'M8 3H3v5m13-5h5v5M3 16v5h5m8 0h5v-5M8 8h8v8H8z',
+  mirror: 'M12 2v3m0 3v3m0 3v3m0 3v2M8 6L2 18h6zM16 6l6 12h-6z',
+  reference: 'M3 4h18v16H3zM3 8h18M6 17l4-5 3 3 2-2 3 4',
   layers: 'M12 3L2 8l10 5 10-5zM3 12l9 5 9-5M3 16l9 5 9-5',
   timeline: 'M4 4h16v16H4zM8 4v16M16 4v16M4 8h4m8 0h4M4 16h4m8 0h4',
   pencil: 'M4 20l2-6L17 3l4 4L10 18zM14 6l4 4',
@@ -112,6 +115,8 @@ $$('[data-panel]').forEach((b) => {
 });
 Object.entries({
   fit: 'fit',
+  'mirror-view': 'mirror',
+  'reference-add': 'reference',
   'timeline-toggle': 'timeline',
   'quick-undo': 'undo',
   'quick-redo': 'redo',
@@ -453,9 +458,42 @@ function changed(affected = null) {
 function paintBuffer(c, pixels, w = project.w, h = project.h) {
   if (c.width !== w) c.width = w;
   if (c.height !== h) c.height = h;
-  c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(pixels), w, h), 0, 0);
+  c.getContext('2d').putImageData(
+    new ImageData(
+      pixels instanceof Uint8ClampedArray ? pixels : new Uint8ClampedArray(pixels),
+      w,
+      h,
+    ),
+    0,
+    0,
+  );
 }
 const renderScheduler = createRenderScheduler(draw);
+let references,
+  referenceLoader,
+  referenceRevision = 0;
+async function openReference() {
+  try {
+    referenceLoader ||= import('./references.js').then(({ createReferences }) => {
+      references = createReferences({
+        toast,
+        pick: (value) => {
+          color = value;
+          refresh();
+        },
+      });
+      return references;
+    });
+    const manager = await referenceLoader;
+    closePrimaryPanels();
+    manager.open();
+    render();
+  } catch {
+    referenceLoader = null;
+    toast('参考小窗未能打开，请重试');
+  }
+}
+$('#reference-add').onclick = openReference;
 function render() {
   renderScheduler.request();
 }
@@ -470,7 +508,7 @@ function draw() {
   ctx.save();
   ctx.translate(cw / 2 + camera.x, ch / 2 + camera.y);
   ctx.rotate(camera.angle);
-  ctx.scale(camera.scale, camera.scale);
+  ctx.scale(camera.scale * (camera.flipX ? -1 : 1), camera.scale * (camera.flipY ? -1 : 1));
   ctx.translate(-project.w / 2, -project.h / 2);
   ctx.shadowColor = '#0008';
   ctx.shadowBlur = 25 / camera.scale;
@@ -494,10 +532,25 @@ function draw() {
   ctx.drawImage(checker, 0, 0);
   ctx.imageSmoothingEnabled = displayMode !== 'pixel';
   ctx.imageSmoothingQuality = 'high';
+  let previewSource;
   if (stroke || selectionUI?.preview) {
     paintBuffer(buffer, composite(renderProject(), frame));
     drawPreview(buffer, true);
-  } else drawPreview(frameCanvas(frame));
+    previewSource = buffer;
+  } else {
+    previewSource = frameCanvas(frame);
+    drawPreview(previewSource);
+  }
+  references?.render(
+    previewSource,
+    id +
+      ':' +
+      dirtyVersion +
+      ':' +
+      frame +
+      ':' +
+      (stroke || selectionUI?.preview ? ++referenceRevision : ''),
+  );
   drawOnions();
   if (grid && camera.scale >= 5) {
     ctx.strokeStyle = '#111a2b55';
@@ -581,8 +634,10 @@ function fit() {
   const center = canvasCenter(),
     available = center.availableWidth;
   camera = {
+    flipX: camera.flipX,
+    flipY: camera.flipY,
     scale: Math.max(
-      0.3,
+      0.05,
       Math.min(20, Math.min((available - 130) / project.w, (ch - 100) / project.h)),
     ),
     angle: 0,
@@ -902,13 +957,22 @@ $('#zoom-in').onclick = () => {
   render();
 };
 $('#zoom-out').onclick = () => {
-  camera.scale = Math.max(0.25, camera.scale / 1.25);
+  camera.scale = Math.max(0.05, camera.scale / 1.25);
   render();
 };
 $('#rotate').onclick = () => {
   camera.angle += Math.PI / 2;
   render();
 };
+function mirrorView(axis) {
+  if (stroke) finishStroke(true);
+  camera[axis] = !camera[axis];
+  document
+    .querySelectorAll('[data-mirror]')
+    .forEach((b) => b.setAttribute('aria-pressed', String(!!camera[b.dataset.mirror])));
+  render();
+}
+$('#mirror-view').onclick = () => mirrorView('flipX');
 $('#quick-undo').onclick = undo;
 $('#quick-redo').onclick = redo;
 $('#pencil-only').onclick = () => {
@@ -996,24 +1060,17 @@ function pinPlugin(plugin, value) {
   toast(value ? '已固定到左侧快捷工具栏' : '已从快捷工具栏移除');
 }
 function positionFloat(e) {
-  const r = view.getBoundingClientRect(),
-    x = e.clientX - r.left - cw / 2 - camera.x,
-    y = e.clientY - r.top - ch / 2 - camera.y,
-    a = -camera.angle;
-  return {
-    x: (x * Math.cos(a) - y * Math.sin(a)) / camera.scale + project.w / 2,
-    y: (x * Math.sin(a) + y * Math.cos(a)) / camera.scale + project.h / 2,
-  };
+  const r = view.getBoundingClientRect();
+  return canvasPoint(
+    { x: e.clientX - r.left - cw / 2, y: e.clientY - r.top - ch / 2 },
+    camera,
+    project.w,
+    project.h,
+  );
 }
 function position(e) {
-  const r = view.getBoundingClientRect(),
-    x = e.clientX - r.left - cw / 2 - camera.x,
-    y = e.clientY - r.top - ch / 2 - camera.y,
-    a = -camera.angle;
-  return {
-    x: Math.floor((x * Math.cos(a) - y * Math.sin(a)) / camera.scale + project.w / 2),
-    y: Math.floor((x * Math.sin(a) + y * Math.cos(a)) / camera.scale + project.h / 2),
-  };
+  const p = positionFloat(e);
+  return { x: Math.floor(p.x), y: Math.floor(p.y) };
 }
 function stamp(x, y, e) {
   const brush = stroke?.brush || currentBrush();
@@ -1178,8 +1235,8 @@ function moveStroke(e) {
   const events = e.getCoalescedEvents?.() || [e];
   for (const sample of events.length ? events : [e]) {
     const p = position(sample);
-    p.x = Math.max(-512, Math.min(1024, p.x));
-    p.y = Math.max(-512, Math.min(1024, p.y));
+    p.x = Math.max(-LIMITS.dimension, Math.min(2 * LIMITS.dimension, p.x));
+    p.y = Math.max(-LIMITS.dimension, Math.min(2 * LIMITS.dimension, p.y));
     if (['line', 'rect', 'ellipse'].includes(tool)) {
       stroke.mask.fill(0);
       project.frames[frame].cels[layer] = new Uint8ClampedArray(
@@ -1326,8 +1383,8 @@ const shapePreview = new ShapePreview((e) => {
     traceShape(points, project.w, project.h, size, (x, y) => stamp(x, y, e));
   } else {
     const p = position(e);
-    p.x = Math.max(-512, Math.min(1024, p.x));
-    p.y = Math.max(-512, Math.min(1024, p.y));
+    p.x = Math.max(-LIMITS.dimension, Math.min(2 * LIMITS.dimension, p.x));
+    p.y = Math.max(-LIMITS.dimension, Math.min(2 * LIMITS.dimension, p.y));
     shapeStroke(current.start, p, e);
     current.last = p;
   }
@@ -1490,7 +1547,7 @@ view.addEventListener(
       x = e.clientX - r.left - cw / 2,
       y = e.clientY - r.top - ch / 2,
       prev = camera.scale;
-    camera.scale = Math.max(0.25, Math.min(60, prev * Math.exp(-e.deltaY * 0.001)));
+    camera.scale = Math.max(0.05, Math.min(60, prev * Math.exp(-e.deltaY * 0.001)));
     const q = camera.scale / prev;
     camera.x = x - (x - camera.x) * q;
     camera.y = y - (y - camera.y) * q;
@@ -1871,6 +1928,7 @@ function layersPanel() {
       toast(e.message);
     }
   };
+  const layerPreview = document.createElement('canvas');
   for (const i of visibleLayerOrder(project, layerOrder(project.layers))) {
     const l = project.layers[i],
       row = document.createElement('div');
@@ -1880,7 +1938,12 @@ function layersPanel() {
     row.innerHTML = `<div class="layer-swipe-actions"><button data-layer-lock>${l.locked ? '解锁' : '锁定'}</button><button data-layer-copy>复制</button><button data-layer-delete class="destructive">删除</button></div><div class="layer-face">${l.group ? `<button class="layer-fold" aria-label="${l.collapsed ? '展开' : '折叠'}图层组 ${esc(l.name)}">${l.collapsed ? '▸' : '▾'}</button>` : ''}<button class="layer-select" data-item-touch aria-pressed="${i === layer}" aria-label="选择图层 ${esc(l.name)}"><span>${esc(l.name)}<small>${l.group ? '图层组' : '普通'}${layerLocked(project, i) ? ' · 已锁定' : ''}</small></span></button><button class="layer-blend" aria-label="图层 ${esc(l.name)} 不透明度">${Math.round((l.opacity / 255) * 100) === 100 ? 'N' : Math.round((l.opacity / 255) * 100) + '%'}</button><button class="visibility" role="checkbox" aria-checked="${l.visible}" aria-label="${l.visible ? '隐藏' : '显示'}图层 ${esc(l.name)}">${l.visible ? '☑' : '□'}</button></div>`;
     if (!l.group) {
       const t = document.createElement('canvas');
-      paintBuffer(t, project.frames[frame].cels[i]);
+      paintBuffer(layerPreview, project.frames[frame].cels[i]);
+      const ratio = Math.min(1, 72 / Math.max(project.w, project.h));
+      t.width = Math.max(1, Math.round(project.w * ratio));
+      t.height = Math.max(1, Math.round(project.h * ratio));
+      t.getContext('2d').imageSmoothingEnabled = false;
+      t.getContext('2d').drawImage(layerPreview, 0, 0, t.width, t.height);
       row.querySelector('.layer-select').prepend(t);
     }
     row.querySelector('.visibility').onclick = () =>
@@ -2028,7 +2091,8 @@ function capacityPanel() {
       <div class="capacity-row"><div><span>撤销与重做</span><output id="capacity-history"></output></div><progress id="capacity-history-meter" aria-label="历史像素数据预算" max="${LIMITS.historyBytes}"></progress><small>最多 ${LIMITS.historyEntries} 步，共用 ${mebibytes(LIMITS.historyBytes)}。达到任一上限，会释放最早的历史记录。</small></div>
       <div class="capacity-row"><div><span>选区历史</span><output>上限 ${mebibytes(LIMITS.selectionHistoryBytes)}</output></div><small>最多 ${LIMITS.selectionHistoryEntries} 次操作，遮罩与取样记录共用预算；切换帧、图层、作品或修改像素后重置。</small></div>
       <div class="capacity-row"><div><span>帧预览缓存</span><output id="capacity-preview"></output></div><small>上限 ${mebibytes(LIMITS.previewBytes)}，按需释放后可重新生成。</small></div>
-      <p class="capacity-note">画布最大 ${LIMITS.dimension} × ${LIMITS.dimension}。单个导入文件最多 60 MiB。以上是画室的数据预算；设备实际内存还包括图像转换、显示纹理及系统开销。</p>
+      <div class="capacity-row"><div><span>参考小窗</span><output>最多 ${LIMITS.referenceWindows} 个</output></div><small>每张参考图最多 ${mebibytes(LIMITS.referencePixels * 4)} 像素数据；较大图片等比缩小。窗口显示缓冲同样限制为 ${mebibytes(LIMITS.referencePixels * 4)} / 个，关闭即释放。参考图仅用于当前会话，不写入作品。</small></div>
+      <p class="capacity-note">画布最大 ${LIMITS.dimension} × ${LIMITS.dimension}。单个导入文件最多 60 MiB。PNG 输出像素预算 64 MiB，超限倍率不可选。以上是画室的数据预算；设备实际内存还包括图像转换、显示纹理及系统开销。</p>
       <p class="capacity-note">容量接近上限时，可减少帧或图层，或导出备份后拆成多个作品。作品保存在此设备，建议定期导出 .pixel 备份。</p>
       <button id="capacity-export" class="panel-wide">保存与导出 <span>›</span></button>
     </div>`;
@@ -2081,7 +2145,7 @@ function settingsPanel() {
     <section class="setting-group"><h3>画布显示</h3>
       <div class="segment display-modes"><button data-display="auto">智能清晰</button><button data-display="smooth">柔和</button><button data-display="pixel">原始像素</button></div>
       <details class="settings-help"><summary>显示模式说明</summary><p>智能清晰保留像素内部，只平滑缩放或旋转后的边缘。显示模式不会改变作品或导出像素。</p></details>
-      <button id="settings-expand" class="panel-wide">扩展画布 <span>四方向 · ›</span></button>
+      <div class="segment mirror-controls"><button data-mirror="flipX" aria-pressed="${!!camera.flipX}">水平镜像</button><button data-mirror="flipY" aria-pressed="${!!camera.flipY}">垂直镜像</button></div><p class="help">镜像只改变查看方向，作品与导出保持原样。</p><button id="settings-reference" class="panel-wide">参考小窗 <span>画布预览 · 图片 · ＋</span></button><button id="settings-expand" class="panel-wide">扩展画布 <span>四方向 · ›</span></button>
       <button id="view-reset" class="panel-wide">重置画布视角 <span>↺</span></button>
     </section>
     <section class="setting-group"><h3>作品与存储</h3>
@@ -2091,8 +2155,12 @@ function settingsPanel() {
     <section class="setting-group"><h3>画室</h3>
       <button id="settings-export" class="panel-wide">分享与导出 <span>项目 · 图片 · 动画 ›</span></button><button id="settings-plugins" class="panel-wide">插件工作台 <span>5 个扩展 · ›</span></button>
       <button id="install-help" class="panel-wide">添加到主屏幕 <span>全屏使用 · ›</span></button>
-      <button id="check-update" class="panel-wide">检查更新 <span>v0.10.0</span></button>
+      <button id="check-update" class="panel-wide">检查更新 <span>v0.11.0</span></button>
     </section>`;
+  document
+    .querySelectorAll('.mirror-controls [data-mirror]')
+    .forEach((b) => (b.onclick = () => mirrorView(b.dataset.mirror)));
+  $('#settings-reference').onclick = openReference;
   $('#settings-export').onclick = (event) => openPanel('export', event.currentTarget);
   $('#settings-expand').onclick = (event) => openPanel('expand', event.currentTarget);
   $('#settings-capacity').onclick = (event) => openPanel('capacity', event.currentTarget);
@@ -2137,7 +2205,7 @@ function settingsPanel() {
     if (r) {
       await r.update();
       toast('已检查更新；如有新版本，顶部会显示更新提示');
-    } else toast('当前版本 v0.10.0');
+    } else toast('当前版本 v0.11.0');
   };
 }
 function download(data, ext, type) {
@@ -2163,6 +2231,12 @@ function exportPanel() {
   panelContent('export').innerHTML =
     `<p class="help">项目备份保留所有像素、图层和动画；导出后可在「文件」中保存或传到其他设备。</p><button id="export-project" class="panel-wide">${svg('export')}画室项目 .pixel</button><button id="export-ase" class="panel-wide">${svg('layers')}Aseprite .aseprite</button><label class="export-scale">PNG 尺寸<select id="png-scale"><option value="1">原始像素 · 1×</option><option value="2">清晰放大 · 2×</option><option value="4">清晰放大 · 4×</option><option value="8">清晰放大 · 8×</option></select></label><button id="export-svg" class="panel-wide">当前帧 · SVG 像素矢量</button><p class="help">SVG 将可见图层合成为矢量像素块，保留透明度，可无损缩放。</p><button id="export-png" class="panel-wide">当前帧 · PNG 透明图片</button><button id="export-sheet" class="panel-wide">全部帧 · PNG 横向精灵图</button><button id="export-gif" class="panel-wide">动画 · GIF</button><button id="export-import" class="panel-wide">导入项目 / Aseprite / 图片转像素</button><p class="help">Aseprite：保留普通图层、图层组、动画标签和帧时长。链接单元展开为独立可编辑像素；特殊混合模式与瓦片需先转换。GIF 使用 216 色量化，半透明像素转为透明或不透明。</p>`;
   $('#export-project').onclick = () => download(serialize(project), '.pixel', 'application/json');
+  for (const option of $('#png-scale').options) {
+    if (project.w * project.h * Number(option.value) ** 2 > LIMITS.exportPixels) {
+      option.disabled = true;
+      option.textContent += ' · 超出输出容量';
+    }
+  }
   $('#export-ase').onclick = () =>
     exportWith('./ase.js', (module) =>
       download(module.writeAse(project), '.aseprite', 'application/octet-stream'),
@@ -2172,8 +2246,15 @@ function exportPanel() {
       download(module.pixelSvg(project, frame), '.svg', 'image/svg+xml'),
     );
   $('#export-png').onclick = () => {
-    const factor = +$('#png-scale').value,
-      source = thumb(project, frame),
+    const factor = +$('#png-scale').value;
+    if (
+      ![1, 2, 4, 8].includes(factor) ||
+      project.w * project.h * factor ** 2 > LIMITS.exportPixels
+    ) {
+      toast('PNG 输出像素预算为 64 MiB，请降低放大倍率');
+      return;
+    }
+    const source = thumb(project, frame),
       c = document.createElement('canvas');
     c.width = project.w * factor;
     c.height = project.h * factor;
@@ -2323,13 +2404,27 @@ async function gallery() {
 }
 $('#gallery').onclick = gallery;
 $('#close-gallery').onclick = () => hideDialog($('#gallery-dialog'));
-$('#new-project').onclick = () => showDialog($('#new-dialog'));
+$('#new-project').onclick = () => {
+  newCapacity();
+  showDialog($('#new-dialog'));
+};
 $('#cancel-new').onclick = () => hideDialog($('#new-dialog'));
+function newCapacity() {
+  const w = Number($('#new-form [name=width]').value),
+    h = Number($('#new-form [name=height]').value);
+  const slots = Math.floor(LIMITS.pixels / (w * h));
+  $('#new-capacity-note').textContent =
+    w > 0 && h > 0 && w <= LIMITS.dimension && h <= LIMITS.dimension
+      ? `${w} × ${h} · 每层每帧 ${mebibytes(w * h * 4)}。单帧最多 ${Math.min(LIMITS.layers, slots)} 层；单层最多 ${Math.min(LIMITS.frames, slots)} 帧，共用 800 万像素预算。`
+      : `宽高范围 1–${LIMITS.dimension}，共用 800 万像素预算。`;
+}
+$('#new-form').addEventListener('input', newCapacity);
 $$('[data-size]').forEach(
   (b) =>
     (b.onclick = () => {
       $('#new-form [name=width]').value = b.dataset.size;
       $('#new-form [name=height]').value = b.dataset.size;
+      newCapacity();
     }),
 );
 $('#new-form').onsubmit = async (e) => {

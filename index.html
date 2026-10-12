@@ -26,6 +26,7 @@
     <link rel="stylesheet" href="./brushes.css" />
     <link rel="stylesheet" href="./selection.css" />
     <link rel="stylesheet" href="./workflow.css" />
+    <link rel="stylesheet" href="./surfaces.css" />
   </head>
   <body>
     <div id="update-banner" hidden>
@@ -94,6 +95,15 @@
         ><button id="zoom-label" aria-label="重置画布视角">400%</button
         ><button id="zoom-in" aria-label="放大画布">＋</button><span></span
         ><button id="rotate" aria-label="顺时针旋转画布">↻</button
+        ><button
+          id="mirror-view"
+          data-mirror="flipX"
+          aria-label="水平镜像显示画布"
+          title="水平镜像显示"
+          aria-pressed="false"
+        >
+          ◧</button
+        ><button id="reference-add" aria-label="打开参考小窗" title="参考小窗">▣</button
         ><button id="grid" aria-label="像素网格" aria-pressed="false">▦</button>
       </div>
       <div id="floatbar" class="floatbar">
@@ -185,19 +195,21 @@
         <label>作品名称<input name="name" value="新的像素作品" maxlength="160" required /></label>
         <div class="dimension-inputs">
           <label
-            >宽度<input name="width" type="number" min="1" max="512" value="64" required /></label
+            >宽度<input name="width" type="number" min="1" max="1024" value="64" required /></label
           ><span>×</span
           ><label
-            >高度<input name="height" type="number" min="1" max="512" value="64" required
+            >高度<input name="height" type="number" min="1" max="1024" value="64" required
           /></label>
         </div>
         <div class="presets">
           <button type="button" data-size="32">32 × 32</button
           ><button type="button" data-size="64">64 × 64</button
-          ><button type="button" data-size="128">128 × 128</button>
+          ><button type="button" data-size="128">128 × 128</button
+          ><button type="button" data-size="512">512 × 512</button
+          ><button type="button" data-size="1024">1024 × 1024</button>
         </div>
         <p id="new-capacity-note">
-          最大 512 × 512 · 32 图层 · 240 帧。图层与帧共用 800 万像素容量。
+          最大 1024 × 1024 · 32 图层 · 240 帧。图层与帧共用 800 万像素容量。
         </p>
         <div class="dialog-actions">
           <button type="button" id="cancel-new">取消</button

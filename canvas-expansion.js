@@ -1,10 +1,10 @@
-import { expansionSize } from './canvas-resize.js';
+import { expansionSize, proportionalExpansion } from './canvas-resize.js';
 import { composite } from './engine.js';
 import { mebibytes, LIMITS } from './limits.js';
 import { createRenderScheduler } from './render-scheduler.js';
 
 export function createExpansionPanel(root, host) {
-  root.innerHTML = `<p class="panel-intro">给下一笔留出空间</p><canvas id="expand-preview" width="320" height="180" aria-label="扩展后的画布预览"></canvas><div class="expand-legend"><span>原画布</span><span>新增透明区域</span></div><form id="expand-form"><div class="expand-directions">${[
+  root.innerHTML = `<p class="panel-intro">给下一笔留出空间</p><canvas id="expand-preview" width="320" height="180" aria-label="扩展后的画布预览"></canvas><div class="expand-legend"><span>原画布</span><span>新增透明区域</span></div><form id="expand-form"><div class="segment expand-mode"><button type="button" data-expand-mode="pixels" aria-pressed="true">四方向</button><button type="button" data-expand-mode="ratio" aria-pressed="false">按比例</button></div><section id="expand-ratio" hidden><label>扩展至原画布的 <input id="expand-percent" aria-label="画布扩展比例" type="number" min="100" max="800" value="150" step="1"> %</label><div class="expand-percent-presets"><button type="button" data-expand-percent="125">125%</button><button type="button" data-expand-percent="150">150%</button><button type="button" data-expand-percent="200">200%</button></div><div class="expand-anchor-label"><span>原图固定位置<small>周围补充透明留白</small></span><div class="expand-anchors" role="group" aria-label="原图固定位置">${['左上', '上', '右上', '左', '中心', '右', '左下', '下', '右下'].map((name, i) => `<button type="button" data-expand-anchor="${i}" aria-label="固定在${name}" aria-pressed="${i === 4}">${i === 4 ? '●' : '·'}</button>`).join('')}</div></div></section><div class="expand-directions">${[
     ['top', '向上', '↑'],
     ['left', '向左', '←'],
     ['right', '向右', '→'],
@@ -12,11 +12,11 @@ export function createExpansionPanel(root, host) {
   ]
     .map(
       ([key, name, arrow]) =>
-        `<label class="expand-${key}"><span>${arrow} ${name}</span><input id="expand-${key}" name="${key}" aria-label="${name}扩展像素" type="number" min="0" max="512" step="1" value="0" required><small>px</small></label>`,
+        `<label class="expand-${key}"><span>${arrow} ${name}</span><input id="expand-${key}" name="${key}" aria-label="${name}扩展像素" type="number" min="0" max="1024" step="1" value="0" required><small>px</small></label>`,
     )
     .join(
       '',
-    )}<span class="expand-center" aria-hidden="true">▧</span></div><div class="expand-quick"><button type="button" data-expand-all="8">四周 +8</button><button type="button" data-expand-all="16">四周 +16</button><button type="reset">重置</button></div><div class="expand-summary"><strong id="expand-size"></strong><span id="expand-memory"></span></div><p id="expand-status" role="status"></p></form><p class="help">所有帧、所有图层一同扩展。已有像素保持原始大小，新增区域透明；应用后可以撤销。当前选区会清除。</p><p class="help">最大 512 × 512，所有帧与图层共用 800 万像素预算。</p>`;
+    )}<span class="expand-center" aria-hidden="true">▧</span></div><div class="expand-quick"><button type="button" data-expand-all="8">四周 +8</button><button type="button" data-expand-all="16">四周 +16</button><button type="reset">重置</button></div><div class="expand-summary"><strong id="expand-size"></strong><span id="expand-memory"></span></div><p id="expand-status" role="status"></p></form><p class="help">所有帧、所有图层一同扩展。已有像素保持原始大小，新增区域透明；应用后可以撤销。当前选区会清除。</p><p class="help">最大 1024 × 1024，所有帧与图层共用 800 万像素预算。</p>`;
   const surface = root.parentElement,
     footer = document.createElement('footer');
   footer.className = 'window-footer expand-footer';
@@ -26,21 +26,24 @@ export function createExpansionPanel(root, host) {
   surface.append(footer);
   const q = (selector) => surface.querySelector(selector),
     fields = ['left', 'right', 'top', 'bottom'];
+  let mode = 'pixels',
+    anchor = [0.5, 0.5];
   const sides = () =>
-    Object.fromEntries(
-      fields.map((key) => [
-        key,
-        q('#expand-' + key).value === '' ? NaN : Number(q('#expand-' + key).value),
-      ]),
-    );
+    mode === 'ratio'
+      ? proportionalExpansion(host.snapshot().project, Number(q('#expand-percent').value), anchor)
+      : Object.fromEntries(
+          fields.map((key) => [
+            key,
+            q('#expand-' + key).value === '' ? NaN : Number(q('#expand-' + key).value),
+          ]),
+        );
   const source = document.createElement('canvas');
   let sourceKey = '',
     valid = false;
   const preview = createRenderScheduler(update);
   function update() {
     if (!root.isConnected) return;
-    const { project, frame, key } = host.snapshot(),
-      p = sides();
+    const { project, frame, key } = host.snapshot();
     if (sourceKey !== key) {
       sourceKey = key;
       source.width = project.w;
@@ -51,7 +54,7 @@ export function createExpansionPanel(root, host) {
     }
     let next;
     try {
-      next = expansionSize(project, p);
+      next = expansionSize(project, sides());
       valid = next.changed;
       q('#expand-status').textContent = next.changed
         ? `原图将向右移 ${next.left} px、向下移 ${next.top} px。`
@@ -98,6 +101,39 @@ export function createExpansionPanel(root, host) {
     ctx.strokeRect(x, y, next.w * scale, next.h * scale);
     ctx.setLineDash([]);
   }
+  function setMode(next) {
+    mode = next;
+    q('#expand-ratio').hidden = mode !== 'ratio';
+    q('.expand-directions').hidden = q('.expand-quick').hidden = mode === 'ratio';
+    q('#expand-percent').disabled = mode !== 'ratio';
+    for (const key of fields) q('#expand-' + key).disabled = mode === 'ratio';
+    root
+      .querySelectorAll('[data-expand-mode]')
+      .forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.expandMode === mode)));
+    update();
+  }
+  root
+    .querySelectorAll('[data-expand-mode]')
+    .forEach((b) => (b.onclick = () => setMode(b.dataset.expandMode)));
+  root.querySelectorAll('[data-expand-percent]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        q('#expand-percent').value = b.dataset.expandPercent;
+        update();
+      }),
+  );
+  root.querySelectorAll('[data-expand-anchor]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        const i = Number(b.dataset.expandAnchor);
+        anchor = [(i % 3) / 2, Math.floor(i / 3) / 2];
+        root
+          .querySelectorAll('[data-expand-anchor]')
+          .forEach((button) => button.setAttribute('aria-pressed', String(button === b)));
+        update();
+      }),
+  );
+  q('#expand-percent').disabled = true;
   q('#expand-form').oninput = () => {
     q('#expand-apply').disabled = true;
     preview.request();

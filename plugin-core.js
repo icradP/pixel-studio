@@ -47,10 +47,10 @@ export function maskBounds(mask, w, h) {
   return x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
 }
 export function snapMask(mask, w, h, { cellW = 16, cellH = 16, offsetX = 0, offsetY = 0 } = {}) {
-  integer(cellW, 1, 512, '网格宽度');
-  integer(cellH, 1, 512, '网格高度');
-  integer(offsetX, -512, 512, '网格 X 偏移');
-  integer(offsetY, -512, 512, '网格 Y 偏移');
+  integer(cellW, 1, LIMITS.dimension, '网格宽度');
+  integer(cellH, 1, LIMITS.dimension, '网格高度');
+  integer(offsetX, -LIMITS.dimension, LIMITS.dimension, '网格 X 偏移');
+  integer(offsetY, -LIMITS.dimension, LIMITS.dimension, '网格 Y 偏移');
   const b = maskBounds(mask, w, h);
   if (!b) throw Error('请先使用矩形选区或魔法选择笔画出选区。');
   const x0 = Math.floor((b.x - offsetX) / cellW) * cellW + offsetX,
@@ -60,8 +60,8 @@ export function snapMask(mask, w, h, { cellW = 16, cellH = 16, offsetX = 0, offs
   return rectangleMask(w, h, { x: x0, y: y0 }, { x: x1, y: y1 });
 }
 export function moveSelected(c, w, h, mask, dx, dy, copy = false) {
-  integer(dx, -512, 512, 'X 位移');
-  integer(dy, -512, 512, 'Y 位移');
+  integer(dx, -LIMITS.dimension, LIMITS.dimension, 'X 位移');
+  integer(dy, -LIMITS.dimension, LIMITS.dimension, 'Y 位移');
   if (!maskBounds(mask, w, h)) throw Error('请先创建选区。');
   const out = new Uint8ClampedArray(c);
   if (!copy) for (let i = 0; i < mask.length; i++) if (mask[i]) out.fill(0, i * 4, i * 4 + 4);
@@ -143,8 +143,8 @@ export function isoBox({
   return { w, h, data };
 }
 export function placeRaster(raster, w, h, x, y) {
-  integer(x, -512, 512, 'X 位置');
-  integer(y, -512, 512, 'Y 位置');
+  integer(x, -LIMITS.dimension, LIMITS.dimension, 'X 位置');
+  integer(y, -LIMITS.dimension, LIMITS.dimension, 'Y 位置');
   const out = new Uint8ClampedArray(w * h * 4);
   for (let sy = 0; sy < raster.h; sy++)
     for (let sx = 0; sx < raster.w; sx++) {
@@ -396,11 +396,11 @@ export function importAnimation(
   integer(start, 0, 239, '放置帧');
   integer(count, 1, 240, '生成帧数');
   integer(duration, 20, 10000, '帧时长');
-  for (const n of [x, y, endX, endY]) integer(n, -512, 512, '移动位置');
+  for (const n of [x, y, endX, endY]) integer(n, -LIMITS.dimension, LIMITS.dimension, '移动位置');
   if (
     !['static', 'linear', 'sine'].includes(path) ||
     !Number.isFinite(amplitude) ||
-    Math.abs(amplitude) > 512 ||
+    Math.abs(amplitude) > LIMITS.dimension ||
     !Number.isFinite(cycles) ||
     cycles < 0 ||
     cycles > 20

@@ -1,5 +1,5 @@
 export const LIMITS = Object.freeze({
-  dimension: 512,
+  dimension: 1024,
   layers: 32,
   frames: 240,
   pixels: 8_000_000,
@@ -8,6 +8,10 @@ export const LIMITS = Object.freeze({
   selectionHistoryEntries: 30,
   selectionHistoryBytes: 4 * 1024 * 1024,
   previewBytes: 32 * 1024 * 1024,
+  referenceWindows: 6,
+  referenceDimension: 2048,
+  referencePixels: 1_048_576,
+  exportPixels: 16_777_216,
   importBytes: 60 * 1024 * 1024,
 });
 

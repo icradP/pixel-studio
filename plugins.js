@@ -1,3 +1,4 @@
+import { LIMITS } from './limits.js';
 import { importKind } from './file-import.js';
 import { blank, clone, composite, deserialize } from './engine.js';
 import { readAse } from './ase.js';
@@ -250,7 +251,7 @@ export function openPlugins(host, initialPlugin = null) {
       )}<p class="help">采用 2:1 等距斜边，盒子自动放在画布中央。</p>`;
     if (active === 'snap') {
       const b = maskBounds(state.selection, p.w, p.h);
-      form.innerHTML = `<p class="help">${b ? `已有选区：${b.x}, ${b.y} · ${b.w} × ${b.h}` : '还没有选区，先返回画布拖出一个矩形。'}</p><button type="button" id="selection-draw" class="panel-wide">返回画布框选</button><button type="button" id="plugin-selection-clear" class="panel-wide">取消选区</button><div class="plugin-fields">${number('cellW', '网格宽度', 16, 1, 512)}${number('cellH', '网格高度', 16, 1, 512)}${number('offsetX', '网格 X 偏移', 0, -512, 512)}${number('offsetY', '网格 Y 偏移', 0, -512, 512)}</div>${select(
+      form.innerHTML = `<p class="help">${b ? `已有选区：${b.x}, ${b.y} · ${b.w} × ${b.h}` : '还没有选区，先返回画布拖出一个矩形。'}</p><button type="button" id="selection-draw" class="panel-wide">返回画布框选</button><button type="button" id="plugin-selection-clear" class="panel-wide">取消选区</button><div class="plugin-fields">${number('cellW', '网格宽度', 16, 1, LIMITS.dimension)}${number('cellH', '网格高度', 16, 1, LIMITS.dimension)}${number('offsetX', '网格 X 偏移', 0, -LIMITS.dimension, LIMITS.dimension)}${number('offsetY', '网格 Y 偏移', 0, -LIMITS.dimension, LIMITS.dimension)}</div>${select(
         'action',
         '操作',
         [
@@ -260,7 +261,7 @@ export function openPlugins(host, initialPlugin = null) {
           ['extract', '提取选区到新图层'],
         ],
         'snap',
-      )}<div class="plugin-fields">${number('dx', 'X 位移', 0, -512, 512)}${number('dy', 'Y 位移', 0, -512, 512)}</div><p class="help">吸附会将不规则选区转换为覆盖它的矩形，边缘限制在画布内。选区也会约束普通笔刷。</p>`;
+      )}<div class="plugin-fields">${number('dx', 'X 位移', 0, -LIMITS.dimension, LIMITS.dimension)}${number('dy', 'Y 位移', 0, -LIMITS.dimension, LIMITS.dimension)}</div><p class="help">吸附会将不规则选区转换为覆盖它的矩形，边缘限制在画布内。选区也会约束普通笔刷。</p>`;
       q('#selection-draw').onclick = async () => {
         host.selectTool();
         status.textContent = '直接在画布框选，再返回此处预览。';
@@ -288,7 +289,7 @@ export function openPlugins(host, initialPlugin = null) {
           ['sine', '正弦起伏'],
         ],
         'static',
-      )}<div class="plugin-fields">${number('x', '起点 X', 0, -512, 512)}${number('y', '起点 Y', 0, -512, 512)}${number('endX', '终点 X', 0, -512, 512)}${number('endY', '终点 Y', 0, -512, 512)}${number('amplitude', '起伏幅度', 8, 0, 512)}${number('cycles', '起伏周期', 1, 0, 20)}</div>${check('crop', '仅使用当前选区（当前作品来源）', false)}</section><section id="animation-loop" hidden><p class="help">按每层前 N 帧循环，使用最小公倍数生成完整循环。</p>${p.layers.map((l, i) => number('period' + i, l.name, p.frames.length, 1, p.frames.length)).join('')}</section>${number('duration', '新增帧 / 循环帧时长（ms）', 120, 20, 10000)}<p class="help">导入会新增图层；原有帧保留自己的时长。支持来源图层、帧范围与当前选区，当前文件格式不保留 Aseprite 标签。</p>`;
+      )}<div class="plugin-fields">${number('x', '起点 X', 0, -LIMITS.dimension, LIMITS.dimension)}${number('y', '起点 Y', 0, -LIMITS.dimension, LIMITS.dimension)}${number('endX', '终点 X', 0, -LIMITS.dimension, LIMITS.dimension)}${number('endY', '终点 Y', 0, -LIMITS.dimension, LIMITS.dimension)}${number('amplitude', '起伏幅度', 8, 0, LIMITS.dimension)}${number('cycles', '起伏周期', 1, 0, 20)}</div>${check('crop', '仅使用当前选区（当前作品来源）', false)}</section><section id="animation-loop" hidden><p class="help">按每层前 N 帧循环，使用最小公倍数生成完整循环。</p>${p.layers.map((l, i) => number('period' + i, l.name, p.frames.length, 1, p.frames.length)).join('')}</section>${number('duration', '新增帧 / 循环帧时长（ms）', 120, 20, 10000)}<p class="help">导入会新增图层；原有帧保留自己的时长。支持来源图层、帧范围与当前选区，当前文件格式不保留 Aseprite 标签。</p>`;
       const sourceFields = () => {
         const s = source || p;
         q('#animation-source-fields').innerHTML =

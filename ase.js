@@ -1,3 +1,4 @@
+import { LIMITS } from './limits.js';
 import { blank, validate, MAX_PIXELS } from './engine.js';
 class Reader {
   constructor(buffer) {
@@ -55,8 +56,8 @@ export async function readAse(buffer) {
     ![8, 16, 32].includes(depth) ||
     w < 1 ||
     h < 1 ||
-    w > 512 ||
-    h > 512 ||
+    w > LIMITS.dimension ||
+    h > LIMITS.dimension ||
     count < 1 ||
     count > 240 ||
     w * h * count > MAX_PIXELS
