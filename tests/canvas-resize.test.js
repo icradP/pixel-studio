@@ -63,7 +63,7 @@ test('each individual direction can expand independently', () => {
 test('invalid dimensions and total-pixel overflow reject before touching existing cels', () => {
   const p = sample(),
     before = clone(p);
-  for (const sides of [{ left: -1 }, { top: 1.5 }, { right: NaN }, { bottom: 511 }, {}])
+  for (const sides of [{ left: -1 }, { top: 1.5 }, { right: NaN }, { bottom: 1023 }, {}])
     assert.throws(() => expandCanvas(p, sides));
   assert.deepEqual(p, before);
   const large = { w: 500, h: 500, layers: Array(32), frames: [{}] };

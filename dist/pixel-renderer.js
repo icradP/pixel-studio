@@ -38,9 +38,9 @@ export function createPixelRenderer() {
     const f = shader(
       gl.FRAGMENT_SHADER,
       `precision highp float;
-   uniform sampler2D picture;uniform vec2 viewport;uniform vec2 center;uniform vec2 imageSize;uniform vec2 rotation;uniform float scale;uniform float smoothMode;
+   uniform sampler2D picture;uniform vec2 viewport;uniform vec2 center;uniform vec2 imageSize;uniform vec2 rotation;uniform vec2 mirror;uniform float scale;uniform float smoothMode;
    void main(){vec2 q=vec2(gl_FragCoord.x,viewport.y-gl_FragCoord.y)-center;
-    vec2 p=vec2(q.x*rotation.x+q.y*rotation.y,-q.x*rotation.y+q.y*rotation.x)/scale+imageSize*.5;
+    vec2 p=vec2(q.x*rotation.x+q.y*rotation.y,-q.x*rotation.y+q.y*rotation.x)/scale*mirror+imageSize*.5;
     float footprint=(abs(rotation.x)+abs(rotation.y))/scale;
     float f=min(1.,footprint);vec2 uv=(floor(p)+.5+(fract(p)-clamp(fract(p),.5*f,1.-.5*f))/f)/imageSize;
     if(smoothMode>0.5)uv=p/imageSize;
@@ -74,7 +74,15 @@ export function createPixelRenderer() {
     for (const name of [gl.TEXTURE_MIN_FILTER, gl.TEXTURE_MAG_FILTER])
       gl.texParameteri(gl.TEXTURE_2D, name, gl.LINEAR);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
-    for (const name of ['viewport', 'center', 'imageSize', 'rotation', 'scale', 'smoothMode'])
+    for (const name of [
+      'viewport',
+      'center',
+      'imageSize',
+      'rotation',
+      'mirror',
+      'scale',
+      'smoothMode',
+    ])
       uniforms[name] = gl.getUniformLocation(program, name);
     lastSource = null;
   }
@@ -113,6 +121,7 @@ export function createPixelRenderer() {
       gl.uniform2f(uniforms.center, (cw / 2 + camera.x) * dpr, (ch / 2 + camera.y) * dpr);
       gl.uniform2f(uniforms.imageSize, source.width, source.height);
       gl.uniform2f(uniforms.rotation, Math.cos(camera.angle), Math.sin(camera.angle));
+      gl.uniform2f(uniforms.mirror, camera.flipX ? -1 : 1, camera.flipY ? -1 : 1);
       gl.uniform1f(uniforms.scale, camera.scale * dpr);
       gl.uniform1f(uniforms.smoothMode, mode === 'smooth' ? 1 : 0);
       gl.drawArrays(gl.TRIANGLES, 0, 6);

@@ -23,12 +23,14 @@ export function floatingPanel(
     collapseButton,
     closeButton,
     autoPlace = true,
+    resizable = false,
     opener = document.activeElement,
   } = {},
 ) {
   let drag = null,
     closed = false,
     moved = false;
+  let resizing = null;
   const parts = () =>
     element.querySelectorAll(
       '.plugins-body,.plugins-footer,.window-body,.window-footer,.selection-body',
@@ -61,7 +63,7 @@ export function floatingPanel(
     const x = viewport?.offsetLeft || 0,
       y = viewport?.offsetTop || 0;
     const bottom =
-      element.id === 'selection-bar'
+      element.id === 'selection-bar' || resizable
         ? y + h
         : Math.min(
             y + h,
@@ -81,6 +83,15 @@ export function floatingPanel(
   }
   function clamp() {
     if (closed || element.hidden || drag) return;
+    if (resizable) {
+      element.style.width =
+        Math.min(element.offsetWidth, (window.visualViewport?.width || innerWidth) - 16) + 'px';
+      element.style.height =
+        Math.min(
+          parseFloat(element.style.height) || element.offsetHeight,
+          (window.visualViewport?.height || innerHeight) - bounds().top - 8,
+        ) + 'px';
+    }
     const box = bounds();
     const left = Math.max(box.left, Math.min(box.right, element.offsetLeft));
     const top = Math.max(box.top, Math.min(box.bottom, element.offsetTop));
@@ -151,12 +162,15 @@ export function floatingPanel(
     closed = true;
     resizeJob.cancel();
     dragJob.cancel();
+    sizeJob.cancel();
+    resizing = null;
     observer.disconnect();
     window.removeEventListener('resize', resize);
     window.visualViewport?.removeEventListener('resize', resize);
     element.removeEventListener('pointerdown', raise);
     const at = windows.indexOf(element);
     if (at >= 0) windows.splice(at, 1);
+    if (resizable) positions.delete(element.id);
     element.dataset.closing = 'true';
     element.inert = true;
     if (element.contains(document.activeElement) && opener?.isConnected)
@@ -216,6 +230,86 @@ export function floatingPanel(
     titleHandle.onpointercancel =
     titleHandle.onlostpointercapture =
       finishDrag;
+  const sizeJob = createRenderScheduler(() => {
+    if (!resizing || closed) return;
+    element.style.width = resizing.width + 'px';
+    element.style.height = resizing.height + 'px';
+    element.style.left = resizing.left + 'px';
+  });
+  if (resizable)
+    for (const side of ['left', 'right']) {
+      const handle = document.createElement('button');
+      handle.className = 'window-resize resize-' + side;
+      handle.setAttribute(
+        'aria-label',
+        side === 'left' ? '从左下角调整窗口大小' : '从右下角调整窗口大小',
+      );
+      handle.title = '拖动调整大小 · 方向键微调';
+      element.append(handle);
+      handle.onpointerdown = (event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        stopMotion(element);
+        raise();
+        moved = true;
+        resizing = {
+          id: event.pointerId,
+          x: event.clientX,
+          y: event.clientY,
+          width: element.offsetWidth,
+          height: element.offsetHeight,
+          left: element.offsetLeft,
+          initialWidth: element.offsetWidth,
+          initialHeight: element.offsetHeight,
+          initialLeft: element.offsetLeft,
+        };
+        element.classList.add('window-resizing');
+        handle.setPointerCapture(event.pointerId);
+      };
+      handle.onpointermove = (event) => {
+        if (resizing?.id !== event.pointerId) return;
+        const r = resizing,
+          maxWidth =
+            side === 'left' ? r.initialLeft + r.initialWidth - 8 : innerWidth - r.initialLeft - 8;
+        r.width = Math.max(
+          Math.min(240, maxWidth),
+          Math.min(maxWidth, r.initialWidth + (event.clientX - r.x) * (side === 'left' ? -1 : 1)),
+        );
+        r.height = Math.max(
+          220,
+          Math.min(innerHeight - element.offsetTop - 8, r.initialHeight + event.clientY - r.y),
+        );
+        r.left = side === 'left' ? r.initialLeft + r.initialWidth - r.width : r.initialLeft;
+        sizeJob.request();
+      };
+      const finishSize = () => {
+        if (!resizing) return;
+        sizeJob.flush();
+        resizing = null;
+        element.classList.remove('window-resizing');
+        clamp();
+        notify();
+        positions.set(element.id, { left: element.offsetLeft, top: element.offsetTop });
+      };
+      handle.onpointerup = handle.onpointercancel = handle.onlostpointercapture = finishSize;
+      handle.onkeydown = (event) => {
+        if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+        event.preventDefault();
+        element.style.width =
+          Math.max(
+            240,
+            element.offsetWidth +
+              (event.key === 'ArrowRight' ? 10 : event.key === 'ArrowLeft' ? -10 : 0),
+          ) + 'px';
+        element.style.height =
+          Math.max(
+            220,
+            element.offsetHeight +
+              (event.key === 'ArrowDown' ? 10 : event.key === 'ArrowUp' ? -10 : 0),
+          ) + 'px';
+        clamp();
+      };
+    }
   element.addEventListener('pointerdown', raise);
   if (collapseButton) collapseButton.onclick = () => collapse();
   if (closeButton) closeButton.onclick = close;
