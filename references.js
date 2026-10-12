@@ -71,7 +71,7 @@ export function createReferences(host) {
         zoom = 1;
         panX = panY = 0;
       }
-      const scale = Math.min((w - 20) / picture.width, (h - 20) / picture.height) * zoom;
+      const scale = Math.min((w - 8) / picture.width, (h - 8) / picture.height) * zoom;
       const width = picture.width * scale,
         height = picture.height * scale;
       panX = Math.max(-width / 2, Math.min(width / 2, panX));

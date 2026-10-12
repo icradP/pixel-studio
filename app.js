@@ -2155,7 +2155,7 @@ function settingsPanel() {
     <section class="setting-group"><h3>画室</h3>
       <button id="settings-export" class="panel-wide">分享与导出 <span>项目 · 图片 · 动画 ›</span></button><button id="settings-plugins" class="panel-wide">插件工作台 <span>5 个扩展 · ›</span></button>
       <button id="install-help" class="panel-wide">添加到主屏幕 <span>全屏使用 · ›</span></button>
-      <button id="check-update" class="panel-wide">检查更新 <span>v0.11.1</span></button>
+      <button id="check-update" class="panel-wide">检查更新 <span>v0.11.2</span></button>
     </section>`;
   document
     .querySelectorAll('.mirror-controls [data-mirror]')
@@ -2205,7 +2205,7 @@ function settingsPanel() {
     if (r) {
       await r.update();
       toast('已检查更新；如有新版本，顶部会显示更新提示');
-    } else toast('当前版本 v0.11.1');
+    } else toast('当前版本 v0.11.2');
   };
 }
 function download(data, ext, type) {

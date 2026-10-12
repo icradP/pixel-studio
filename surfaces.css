@@ -1,10 +1,7 @@
-/* Opaque, layered surfaces: a lit rim, substantial body and a soft contact shadow. */
+/* Borderless floating surfaces keep the canvas visible around compact controls. */
 :root {
-  --panel-radius: 18px;
-  --surface-rim: #ffffff29;
-  --surface-shadow:
-    0 0 0 1px #08090bbb, 0 3px 0 #101114, 0 9px 18px #0005, 0 28px 65px #0007,
-    inset 0 1px 0 #ffffff12;
+  --panel-radius: 10px;
+  --surface-shadow: 0 4px 16px #0003;
   --ease-studio: cubic-bezier(0.2, 0.75, 0.2, 1);
 }
 .studio-window,
@@ -12,38 +9,81 @@
 #selection-bar,
 dialog:not(#gallery-dialog),
 .choice-menu {
-  border: 1px solid var(--surface-rim);
-  border-bottom-color: #101114;
-  background: linear-gradient(155deg, #34353b 0, #292a2f 110px, #27282d 100%);
+  --window-head-height: 40px;
+  border: 0;
+  background: #292a2ff2;
   box-shadow: var(--surface-shadow);
   border-radius: var(--panel-radius);
 }
+.studio-window,
+#plugins-dialog.plugin-float {
+  max-height: min(
+    var(--window-available-height, calc(100dvh - 92px)),
+    560px,
+    calc(100dvh - var(--floating-bottom-reserve, 12px) - 80px)
+  );
+}
 .window-head,
 .plugin-float .plugins-header,
-.selection-head {
-  background: linear-gradient(#ffffff05, #ffffff00);
-  border-bottom: 1px solid #ffffff09;
+#selection-bar .selection-head {
+  min-height: var(--window-head-height);
+  height: var(--window-head-height);
+  padding: 2px 4px 2px 12px;
+  gap: 2px;
+  background: transparent;
+  border: 0;
 }
-.window-head h2 {
-  font-size: 21px;
-  letter-spacing: -0.025em;
+.window-head h2,
+.plugin-float .plugins-header h2,
+#selection-bar .selection-head strong {
+  font-size: 14px;
+  letter-spacing: 0;
 }
-.window-head :is(.window-close, .window-collapse) {
-  border-radius: 50%;
-  background: #ffffff07;
+.window-head button,
+.plugin-float .plugins-header button,
+#selection-bar .selection-head button {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 20px;
 }
-.window-head :is(.window-close, .window-collapse):hover {
-  background: #ffffff13;
+.window-head button svg,
+.plugin-float .plugins-header button svg,
+#selection-bar .selection-head button svg {
+  width: 16px;
+  height: 16px;
+}
+.window-head button:hover,
+.plugin-float .plugins-header button:hover {
+  background: #ffffff0c;
   color: #fff;
+}
+.studio-window .window-body,
+.plugin-float .plugins-body,
+#selection-bar .selection-body {
+  padding: 6px 12px 10px;
+}
+.studio-window .window-body {
+  max-height: calc(var(--window-available-height, 80dvh) - var(--window-head-height));
+}
+.studio-window.float-collapsed,
+#plugins-dialog.plugin-float.float-collapsed,
+#selection-bar.float-collapsed {
+  max-height: var(--window-head-height);
+}
+.plugin-float .plugins-footer {
+  min-height: 50px;
+  padding: 4px 12px 6px;
+  border: 0;
+  background: transparent;
 }
 .window-dragging,
 .window-resizing {
-  box-shadow:
-    0 0 0 1px #08090baa,
-    0 5px 0 #101114,
-    0 20px 32px #0005,
-    0 42px 80px #0009,
-    inset 0 1px 0 #ffffff20;
+  box-shadow: 0 6px 20px #0004;
 }
 .window-head {
   cursor: grab;
@@ -283,8 +323,9 @@ button {
   color: #101722;
 }
 .studio-window.reference-window {
-  width: 310px;
-  height: 350px;
+  --window-head-height: 36px;
+  width: 280px;
+  height: 288px;
   min-width: 0;
   min-height: 0;
   max-height: calc(100dvh - 80px);
@@ -293,16 +334,16 @@ button {
   flex-direction: column;
 }
 .reference-window .window-head {
-  min-height: 48px;
-  height: 48px;
-  padding-left: 17px;
+  min-height: var(--window-head-height);
+  height: var(--window-head-height);
+  padding-left: 10px;
 }
 .reference-window .window-head h2 {
-  font-size: 15px;
+  font-size: 12px;
   letter-spacing: 0;
 }
 .reference-window .reference-body {
-  padding: 0 8px 14px;
+  padding: 0 0 2px;
   overflow: hidden;
   flex: 1;
   max-height: none;
@@ -315,9 +356,9 @@ button {
   min-height: 50px;
   position: relative;
   overflow: hidden;
-  border-radius: 10px;
+  border-radius: 0;
   background: repeating-conic-gradient(#1c1d22 0% 25%, #222329 0% 50%) 0 / 16px 16px;
-  box-shadow: inset 0 0 0 1px #0005;
+  box-shadow: none;
   touch-action: none;
   cursor: grab;
 }
@@ -348,23 +389,26 @@ button {
   display: flex;
   gap: 2px;
   flex-shrink: 0;
-  margin-top: 8px;
+  margin: 0;
+  padding: 0 28px;
 }
 .reference-toolbar button {
+  min-width: 32px;
   min-height: 32px;
   height: 32px;
   font-size: 11px;
-  padding: 3px 7px;
+  padding: 3px 5px;
   white-space: nowrap;
 }
 .reference-toolbar .segment {
   flex: 1;
-  padding: 2px;
+  padding: 0;
+  background: transparent;
 }
 .reference-toolbar .segment button {
-  min-height: 28px;
-  height: 28px;
-  padding: 3px 6px;
+  min-height: 32px;
+  height: 32px;
+  padding: 3px 4px;
   flex: 1;
 }
 .reference-toolbar [aria-pressed='true'] {
@@ -374,10 +418,10 @@ button {
 .reference-note {
   flex-shrink: 0;
   font-size: 9px;
-  line-height: 1.3;
+  line-height: 12px;
   color: #a4a7b2;
   text-align: center;
-  margin: 7px 9px 0;
+  margin: 0 22px 2px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -408,6 +452,7 @@ button {
   position: absolute;
   bottom: 0;
   width: 28px;
+  min-width: 28px;
   height: 24px;
   min-height: 24px;
   padding: 0;
@@ -420,8 +465,8 @@ button {
   display: block;
   width: 9px;
   height: 9px;
-  border-bottom: 2px solid #ffffff4d;
-  border-right: 2px solid #ffffff4d;
+  border-bottom: 1px solid #ffffff35;
+  border-right: 1px solid #ffffff35;
   border-radius: 0 0 3px 0;
   margin: 5px;
 }
@@ -435,8 +480,8 @@ button {
   cursor: nwse-resize;
 }
 .reference-window.float-collapsed {
-  height: 48px;
-  max-height: 48px;
+  height: var(--window-head-height);
+  max-height: var(--window-head-height);
 }
 .reference-window.float-collapsed :is(.reference-body, .window-resize) {
   display: none;
