@@ -1,8 +1,24 @@
 import { composite } from './engine.js';
+import { prepareAse, clippingBase } from './layer-effects.js';
 // Remove stationary pixels per layer before compositing. Static backgrounds
 // should neither cover the onion nor tint the whole canvas.
 export function onionPixels(p, frame, neighbor, selectedLayer = -1) {
   if (neighbor < 0 || neighbor >= p.frames.length || neighbor === frame) return null;
+  const previous = neighbor < frame;
+  // A stationary clipping base must retain its alpha while a clipped cel moves.
+  // Bake just the two requested frames before removing their unchanged pixels.
+  if (p.layers.some((l) => l.clipping)) {
+    if (selectedLayer >= 0) {
+      const base = p.layers[selectedLayer].clipping
+        ? clippingBase(p, selectedLayer)
+        : selectedLayer;
+      if (base < 0) return null;
+      selectedLayer = p.layers.slice(0, base).filter((l) => !l.clipping).length;
+    }
+    p = prepareAse({ ...p, frames: [p.frames[frame], p.frames[neighbor]] });
+    frame = 0;
+    neighbor = 1;
+  }
   const before = p.frames[neighbor],
     current = p.frames[frame],
     cels = before.cels.map((cel, li) => {
@@ -21,7 +37,7 @@ export function onionPixels(p, frame, neighbor, selectedLayer = -1) {
       return out;
     });
   const pixels = composite({ ...p, frames: [{ ...before, cels }] }, 0),
-    color = neighbor < frame ? [255, 95, 132] : [77, 227, 187];
+    color = previous ? [255, 95, 132] : [77, 227, 187];
   for (let i = 0; i < pixels.length; i += 4)
     if (pixels[i + 3]) {
       pixels[i] = color[0];

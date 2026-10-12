@@ -1,3 +1,4 @@
+import { cloneLayer } from './engine.js';
 import { LIMITS, projectUsage } from './limits.js';
 import { parentLayer, subtreeEnd, reorderLayer } from './animation-edit.js';
 
@@ -10,9 +11,10 @@ export function duplicateLayer(project, index) {
       LIMITS.pixels
   )
     throw Error('复制后超出图层或像素容量上限');
-  const layers = project.layers
-    .slice(index, end)
-    .map((layer, i) => ({ ...layer, ...(i ? {} : { name: layer.name.slice(0, 157) + ' 副本' }) }));
+  const layers = project.layers.slice(index, end).map((layer, i) => ({
+    ...cloneLayer(layer),
+    ...(i ? {} : { name: layer.name.slice(0, 157) + ' 副本' }),
+  }));
   project.layers.splice(end, 0, ...layers);
   project.frames.forEach((frame) =>
     frame.cels.splice(

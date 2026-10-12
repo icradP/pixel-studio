@@ -143,8 +143,8 @@ export function ungroupLayer(p, i) {
   if (!p.layers[i]?.group) throw Error('请选择图层组');
   const end = subtreeEnd(p, i),
     group = p.layers[i];
-  if (group.isolated !== false && group.opacity !== 255)
-    throw Error('请先将组透明度设为 100%，再解散以保留画面');
+  if (group.isolated !== false && (group.opacity !== 255 || group.blend))
+    throw Error('请先将组透明度设为 100%、混合模式设为正常，再解散以保留画面');
   for (let j = i + 1; j < end; j++) {
     const l = p.layers[j];
     l.level = (l.level || 0) - 1;

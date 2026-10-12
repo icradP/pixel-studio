@@ -1,3 +1,6 @@
+import { pressureResponse, applyGradient, mixPaintEffect, paintMask } from './paint.js';
+import { BLEND_MODES, layerPixels } from './layer-effects.js';
+import { layerEffects, gradientSettings } from './painting-ui.js';
 import { canvasPoint } from './camera.js';
 import { LIMITS, projectUsage, mebibytes } from './limits.js';
 import { installControls, updateRanges } from './controls.js';
@@ -96,6 +99,7 @@ const icons = {
   onion: 'M17 12a7 7 0 11-14 0 7 7 0 1114 0M21 12a7 7 0 01-7 7m0-14a7 7 0 017 7',
   duplicate: 'M8 8h13v13H8zM4 16H2V2h14v2M11 14h7m-3-3v7',
   plus: 'M12 4v16M4 12h16',
+  gradient: 'M3 3h18v18H3zM6 5v14M9 5v14M13 5v14M18 5v14',
   more: 'M5 12h.1M12 12h.1M19 12h.1',
   eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM15 12a3 3 0 11-6 0 3 3 0 016 0',
   hidden:
@@ -734,7 +738,8 @@ function refresh() {
   selectionUI?.update();
   document.dispatchEvent(new Event('pixel-studio-context'));
   $('#project-name').textContent = project.name;
-  $('#project-detail').textContent = `${project.w} × ${project.h} · 第 ${frame + 1} 帧`;
+  $('#project-detail').textContent =
+    `${project.w} × ${project.h} · 第 ${frame + 1} 帧${editingMask() ? ' · 正在绘制遮罩' : ''}`;
   $('#canvas-info').textContent =
     `${project.w} × ${project.h} · ${project.layers.length} 层 · ${project.frames.length} 帧`;
   updateCapacity();
@@ -832,7 +837,8 @@ function framesBuild() {
 }
 function highlightFrames() {
   animationTimeline?.highlight();
-  $('#project-detail').textContent = project.w + ' × ' + project.h + ' · 第 ' + (frame + 1) + ' 帧';
+  $('#project-detail').textContent =
+    `${project.w} × ${project.h} · 第 ${frame + 1} 帧${editingMask() ? ' · 正在绘制遮罩' : tool === 'gradient' ? ' · 渐变' : ''}`;
   if (!$('#frames').hidden)
     $$('.frame').forEach((b, i) => {
       b.classList.toggle('active', i === frame);
@@ -1072,14 +1078,66 @@ function position(e) {
   const p = positionFloat(e);
   return { x: Math.floor(p.x), y: Math.floor(p.y) };
 }
+let maskTarget = null;
+const editingMask = () => maskTarget === project.layers[layer] && !!maskTarget?.mask;
+const gradientOptions = {
+  type: 'linear',
+  from: '#9b78f5',
+  to: '#63d5dd',
+  opacity: 1,
+  steps: 0,
+  dither: false,
+  transparent: false,
+};
+function gradientPanel() {
+  gradientSettings(panelContent('gradient'), {
+    get: () => gradientOptions,
+    set: (patch) => Object.assign(gradientOptions, patch),
+    color: () => color,
+    use: () => {
+      chooseTool('gradient');
+      toast('在画布上拖动绘制渐变');
+    },
+  });
+}
+function gradientStroke(end) {
+  const pixels = applyGradient(
+    stroke.maskEditing ? stroke.before.layers[layer].mask : stroke.before.frames[frame].cels[layer],
+    project.w,
+    project.h,
+    stroke.start,
+    end,
+    {
+      ...gradientOptions,
+      from: rgba(gradientOptions.from).slice(0, 3),
+      to: rgba(gradientOptions.to).slice(0, 3),
+    },
+    { selection, alphaLock: project.layers[layer].alphaLock, mask: stroke.maskEditing },
+  );
+  if (stroke.maskEditing) project.layers[layer].mask = pixels;
+  else project.frames[frame].cels[layer] = pixels;
+}
 function stamp(x, y, e) {
   const brush = stroke?.brush || currentBrush();
   const n =
     brush.pressure && e.pointerType === 'pen'
-      ? Math.max(1, Math.round(brush.size * (0.25 + 0.75 * Math.max(0.01, e.pressure || 0.5))))
+      ? Math.max(
+          1,
+          Math.round(
+            brush.size * (0.25 + 0.75 * pressureResponse(e.pressure, brush.pressureCurve)),
+          ),
+        )
       : brush.size;
   stampBrush({
     pixels: project.frames[frame].cels[layer],
+    pressureFactor:
+      brush.opacityPressure && e.pointerType === 'pen'
+        ? pressureResponse(e.pressure, brush.pressureCurve)
+        : 1,
+    coverage: stroke?.coverage,
+    alphaLock: !!project.layers[layer].alphaLock,
+    layerMask: stroke?.maskEditing ? project.layers[layer].mask : null,
+    baseLayerMask: stroke?.maskEditing ? stroke.before.layers[layer].mask : null,
     w: project.w,
     h: project.h,
     x,
@@ -1190,12 +1248,18 @@ function beginStroke(e) {
     type: e.pointerType,
     tool,
     brush: normalizeBrush(currentBrush()),
+    coverage: new Uint8Array(project.w * project.h),
+    maskEditing: editingMask(),
     magic:
-      magicConfig.enabled && ['pencil', 'line', 'rect', 'ellipse'].includes(tool)
+      !editingMask() && magicConfig.enabled && ['pencil', 'line', 'rect', 'ellipse'].includes(tool)
         ? { ...magicConfig }
         : null,
     mask: new Uint8Array(project.w * project.h),
   };
+  if (tool === 'gradient') {
+    render();
+    return;
+  }
   if (tool === 'fill') {
     flood(project.frames[frame].cels[layer], project.w, project.h, p.x, p.y, rgba(color));
     if (selection)
@@ -1205,6 +1269,26 @@ function beginStroke(e) {
             stroke.before.frames[frame].cels[layer].subarray(i * 4, i * 4 + 4),
             i * 4,
           );
+    const before = stroke.before.frames[frame].cels[layer],
+      filled = project.frames[frame].cels[layer];
+    if (stroke.maskEditing) {
+      const gray = new Uint8ClampedArray(project.w * project.h * 4),
+        mask = project.layers[layer].mask;
+      for (let i = 0; i < mask.length; i++) gray.set([mask[i], mask[i], mask[i], 255], i * 4);
+      const original = new Uint8ClampedArray(gray),
+        value = Math.round(0.3 * rgba(color)[0] + 0.59 * rgba(color)[1] + 0.11 * rgba(color)[2]);
+      flood(gray, project.w, project.h, p.x, p.y, [value, value, value, 255]);
+      for (let i = 0; i < mask.length; i++)
+        if ((!selection || selection[i]) && gray[i * 4] !== original[i * 4])
+          paintMask(mask, stroke.before.layers[layer].mask, i, value, stroke.brush.opacity / 100);
+      project.frames[frame].cels[layer] = new Uint8ClampedArray(before);
+    } else
+      project.frames[frame].cels[layer] = mixPaintEffect(
+        before,
+        filled,
+        stroke.brush.opacity / 100,
+        project.layers[layer].alphaLock,
+      );
   } else stamp(p.x, p.y, e);
   magicPreview();
   if (['pencil', 'eraser'].includes(tool)) armHold(e);
@@ -1228,7 +1312,7 @@ function moveStroke(e) {
     render();
     return;
   }
-  if (['line', 'rect', 'ellipse'].includes(tool)) {
+  if (['line', 'rect', 'ellipse', 'gradient'].includes(tool)) {
     shapePreview.push(e);
     return;
   }
@@ -1261,7 +1345,16 @@ function magicPreview() {
     color,
     palette,
   );
-  mixStrokeOpacity(stroke.before.frames[frame].cels[layer], output, stroke.brush.opacity);
+  mixStrokeOpacity(
+    stroke.before.frames[frame].cels[layer],
+    output,
+    stroke.brush.opacity,
+    stroke.brush.opacityPressure ? stroke.coverage : null,
+  );
+  if (project.layers[layer].alphaLock) {
+    const locked = mixPaintEffect(stroke.before.frames[frame].cels[layer], output, 1, true);
+    output.set(locked);
+  }
   if (selection && !['select', 'select-erase'].includes(stroke.magic.mode))
     for (let i = 0; i < selection.length; i++)
       if (!selection[i])
@@ -1321,7 +1414,11 @@ function finishStroke(cancel = false) {
       layer = project.layers.length - 1;
     }
     checkpoint(current.before);
-    changed(project.layers.length === current.before.layers.length ? [frame] : null);
+    changed(
+      !current.maskEditing && project.layers.length === current.before.layers.length
+        ? [frame]
+        : null,
+    );
   } catch (e) {
     project = current.before;
     toast(e.message);
@@ -1378,6 +1475,13 @@ const shapePreview = new ShapePreview((e) => {
   if (!current?.before) return;
   project.frames[frame].cels[layer].set(current.before.frames[frame].cels[layer]);
   current.mask.fill(0);
+  current.coverage.fill(0);
+  if (current.maskEditing) project.layers[layer].mask.set(current.before.layers[layer].mask);
+  if (tool === 'gradient') {
+    gradientStroke(position(e));
+    render();
+    return;
+  }
   if (current.quick) {
     const points = adjustShape(current.quick.shape, current.quick.hold, positionFloat(e));
     traceShape(points, project.w, project.h, size, (x, y) => stamp(x, y, e));
@@ -1604,6 +1708,7 @@ function openPanel(type, opener = document.activeElement) {
     settings: '偏好设置',
     animation: '动画编辑',
     tools: '绘画工具',
+    gradient: '渐变',
     capacity: '画布容量',
   };
   toolWindows.toggle(
@@ -1619,6 +1724,7 @@ function openPanel(type, opener = document.activeElement) {
         settings: settingsPanel,
         animation: animationPanel,
         tools: toolsPanel,
+        gradient: gradientPanel,
         capacity: capacityPanel,
       })[type](),
     opener,
@@ -1789,6 +1895,7 @@ function toolsPanel() {
       ['pencil', '像素铅笔'],
       ['eraser', '橡皮擦'],
       ['fill', '颜色填充'],
+      ['gradient', '渐变'],
       ['line', '直线'],
       ['rect', '矩形'],
       ['ellipse', '椭圆'],
@@ -1818,6 +1925,7 @@ function toolsPanel() {
       (b.onclick = () => {
         chooseTool(b.dataset.pickTool);
         closePanel('tools');
+        if (b.dataset.pickTool === 'gradient') openPanel('gradient');
       }),
   );
 }
@@ -1916,6 +2024,9 @@ function panelContext() {
 let layerSolo = null;
 function layersPanel() {
   layerPanelKey = panelContext();
+  const optionsOpen = panelContent('layers').querySelector('#layer-options')?.hidden === false;
+  const adjustmentsOpen = !!panelContent('layers').querySelector('.layer-adjustments')?.open;
+  const previousScroll = panelContent('layers').scrollTop;
   const c = panelContent('layers'),
     selected = project.layers[layer],
     parent = parentLayer(project, layer),
@@ -1935,10 +2046,10 @@ function layersPanel() {
     row.className = 'layer' + (i === layer ? ' active' : '');
     row.style.marginLeft = (l.level || 0) * 10 + 'px';
     row.dataset.dragKey = i;
-    row.innerHTML = `<div class="layer-swipe-actions"><button data-layer-lock>${l.locked ? '解锁' : '锁定'}</button><button data-layer-copy>复制</button><button data-layer-delete class="destructive">删除</button></div><div class="layer-face">${l.group ? `<button class="layer-fold" aria-label="${l.collapsed ? '展开' : '折叠'}图层组 ${esc(l.name)}">${l.collapsed ? '▸' : '▾'}</button>` : ''}<button class="layer-select" data-item-touch aria-pressed="${i === layer}" aria-label="选择图层 ${esc(l.name)}"><span>${esc(l.name)}<small>${l.group ? '图层组' : '普通'}${layerLocked(project, i) ? ' · 已锁定' : ''}</small></span></button><button class="layer-blend" aria-label="图层 ${esc(l.name)} 不透明度">${Math.round((l.opacity / 255) * 100) === 100 ? 'N' : Math.round((l.opacity / 255) * 100) + '%'}</button><button class="visibility" role="checkbox" aria-checked="${l.visible}" aria-label="${l.visible ? '隐藏' : '显示'}图层 ${esc(l.name)}">${l.visible ? '☑' : '□'}</button></div>`;
+    row.innerHTML = `<div class="layer-swipe-actions"><button data-layer-lock>${l.locked ? '解锁' : '锁定'}</button><button data-layer-copy>复制</button><button data-layer-delete class="destructive">删除</button></div><div class="layer-face">${l.group ? `<button class="layer-fold" aria-label="${l.collapsed ? '展开' : '折叠'}图层组 ${esc(l.name)}">${l.collapsed ? '▸' : '▾'}</button>` : ''}<button class="layer-select" data-item-touch aria-pressed="${i === layer}" aria-label="选择图层 ${esc(l.name)}"><span>${esc(l.name)}<small>${l.group ? '图层组' : l.clipping ? '剪贴图层' : '普通'}${l.mask ? ' · 遮罩' : ''}${l.alphaLock ? ' · 锁透明' : ''}${layerLocked(project, i) ? ' · 已锁定' : ''}</small></span></button><button class="layer-blend" aria-label="图层 ${esc(l.name)} 不透明度">${l.blend ? BLEND_MODES[l.blend].slice(0, 2) : Math.round((l.opacity / 255) * 100) === 100 ? 'N' : Math.round((l.opacity / 255) * 100) + '%'}</button><button class="visibility" role="checkbox" aria-checked="${l.visible}" aria-label="${l.visible ? '隐藏' : '显示'}图层 ${esc(l.name)}">${l.visible ? '☑' : '□'}</button></div>`;
     if (!l.group) {
       const t = document.createElement('canvas');
-      paintBuffer(layerPreview, project.frames[frame].cels[i]);
+      paintBuffer(layerPreview, layerPixels(project, frame, i));
       const ratio = Math.min(1, 72 / Math.max(project.w, project.h));
       t.width = Math.max(1, Math.round(project.w * ratio));
       t.height = Math.max(1, Math.round(project.h * ratio));
@@ -2019,6 +2130,32 @@ function layersPanel() {
     });
     $('#layer-list').append(row);
   }
+  if (optionsOpen) $('#layer-options').hidden = false;
+  layerEffects(c, {
+    project: () => project,
+    layer: () => layer,
+    selection: () => selection,
+    maskEditing: editingMask,
+    editMask: (value) => {
+      maskTarget = value ? project.layers[layer] : null;
+      chooseTool('pencil');
+      layersPanel();
+    },
+    setColor: (value) => {
+      color = value;
+      refresh();
+    },
+    toast,
+    edit: (fn) => {
+      const wasEditing = editingMask();
+      editProject(fn);
+      if (wasEditing) maskTarget = project.layers[layer];
+      layersPanel();
+    },
+  });
+  if (adjustmentsOpen && c.querySelector('.layer-adjustments'))
+    c.querySelector('.layer-adjustments').open = true;
+  c.scrollTop = previousScroll;
   $('#layer-options-close').onclick = () => ($('#layer-options').hidden = true);
   $('#duplicate-layer').onclick = () => run((p) => (layer = duplicateLayer(p, layer)));
   $('#clear-layer').disabled = selected.group || layerLocked(project, layer);
@@ -2155,7 +2292,7 @@ function settingsPanel() {
     <section class="setting-group"><h3>画室</h3>
       <button id="settings-export" class="panel-wide">分享与导出 <span>项目 · 图片 · 动画 ›</span></button><button id="settings-plugins" class="panel-wide">插件工作台 <span>5 个扩展 · ›</span></button>
       <button id="install-help" class="panel-wide">添加到主屏幕 <span>全屏使用 · ›</span></button>
-      <button id="check-update" class="panel-wide">检查更新 <span>v0.11.2</span></button>
+      <button id="check-update" class="panel-wide">检查更新 <span>v0.12.0</span></button>
     </section>`;
   document
     .querySelectorAll('.mirror-controls [data-mirror]')
@@ -2205,7 +2342,7 @@ function settingsPanel() {
     if (r) {
       await r.update();
       toast('已检查更新；如有新版本，顶部会显示更新提示');
-    } else toast('当前版本 v0.11.2');
+    } else toast('当前版本 v0.12.0');
   };
 }
 function download(data, ext, type) {
@@ -2229,7 +2366,7 @@ async function exportWith(path, action) {
 }
 function exportPanel() {
   panelContent('export').innerHTML =
-    `<p class="help">项目备份保留所有像素、图层和动画；导出后可在「文件」中保存或传到其他设备。</p><button id="export-project" class="panel-wide">${svg('export')}画室项目 .pixel</button><button id="export-ase" class="panel-wide">${svg('layers')}Aseprite .aseprite</button><label class="export-scale">PNG 尺寸<select id="png-scale"><option value="1">原始像素 · 1×</option><option value="2">清晰放大 · 2×</option><option value="4">清晰放大 · 4×</option><option value="8">清晰放大 · 8×</option></select></label><button id="export-svg" class="panel-wide">当前帧 · SVG 像素矢量</button><p class="help">SVG 将可见图层合成为矢量像素块，保留透明度，可无损缩放。</p><button id="export-png" class="panel-wide">当前帧 · PNG 透明图片</button><button id="export-sheet" class="panel-wide">全部帧 · PNG 横向精灵图</button><button id="export-gif" class="panel-wide">动画 · GIF</button><button id="export-import" class="panel-wide">导入项目 / Aseprite / 图片转像素</button><p class="help">Aseprite：保留普通图层、图层组、动画标签和帧时长。链接单元展开为独立可编辑像素；特殊混合模式与瓦片需先转换。GIF 使用 216 色量化，半透明像素转为透明或不透明。</p>`;
+    `<p class="help">项目备份保留所有像素、图层和动画；导出后可在「文件」中保存或传到其他设备。</p><button id="export-project" class="panel-wide">${svg('export')}画室项目 .pixel</button><button id="export-ase" class="panel-wide">${svg('layers')}Aseprite .aseprite</button><label class="export-scale">PNG 尺寸<select id="png-scale"><option value="1">原始像素 · 1×</option><option value="2">清晰放大 · 2×</option><option value="4">清晰放大 · 4×</option><option value="8">清晰放大 · 8×</option></select></label><button id="export-svg" class="panel-wide">当前帧 · SVG 像素矢量</button><p class="help">SVG 将可见图层合成为矢量像素块，保留透明度，可无损缩放。</p><button id="export-png" class="panel-wide">当前帧 · PNG 透明图片</button><button id="export-sheet" class="panel-wide">全部帧 · PNG 横向精灵图</button><button id="export-gif" class="panel-wide">动画 · GIF</button><button id="export-import" class="panel-wide">导入项目 / Aseprite / 图片转像素</button><p class="help">Aseprite：保留普通图层、图层组、动画标签和帧时长。链接单元展开为独立可编辑像素；支持 19 种混合模式；遮罩与颜色调整会应用到像素，剪贴层合并到对应底层，保持画面效果。需保留可编辑遮罩请同时保存 .pixel；瓦片需先转换。GIF 使用 216 色量化，半透明像素转为透明或不透明。</p>`;
   $('#export-project').onclick = () => download(serialize(project), '.pixel', 'application/json');
   for (const option of $('#png-scale').options) {
     if (project.w * project.h * Number(option.value) ** 2 > LIMITS.exportPixels) {

@@ -1,3 +1,4 @@
+import { renderComposite } from './layer-effects.js';
 import { LIMITS } from './limits.js';
 export const MAX_PIXELS = LIMITS.pixels;
 export function blank(w = 64, h = 64, name = '未命名作品') {
@@ -11,11 +12,18 @@ export function blank(w = 64, h = 64, name = '未命名作品') {
     frames: [{ duration: 120, cels: [new Uint8ClampedArray(w * h * 4)] }],
   };
 }
+export function cloneLayer(l) {
+  return {
+    ...l,
+    ...(l.mask ? { mask: new Uint8ClampedArray(l.mask) } : {}),
+    ...(l.adjustments ? { adjustments: { ...l.adjustments } } : {}),
+  };
+}
 export function clone(p) {
   return {
     ...p,
     ...(p.tags ? { tags: p.tags.map((t) => ({ ...t })) } : {}),
-    layers: p.layers.map((l) => ({ ...l })),
+    layers: p.layers.map(cloneLayer),
     frames: p.frames.map((f) => ({ ...f, cels: f.cels.map((c) => new Uint8ClampedArray(c)) })),
   };
 }
@@ -50,6 +58,35 @@ export function validate(p) {
       l.opacity > 255
     )
       throw Error('图层数据无效');
+    if (l.blend !== undefined && (!Number.isInteger(l.blend) || l.blend < 0 || l.blend > 18))
+      throw Error('图层混合模式无效');
+    for (const key of ['alphaLock', 'clipping', 'maskEnabled'])
+      if (l[key] !== undefined && typeof l[key] !== 'boolean') throw Error('图层效果数据无效');
+    if (
+      l.mask !== undefined &&
+      (!(l.mask instanceof Uint8ClampedArray) || l.mask.length !== p.w * p.h || l.group)
+    )
+      throw Error('图层遮罩数据无效');
+    if (l.adjustments !== undefined) {
+      if (
+        !l.adjustments ||
+        typeof l.adjustments !== 'object' ||
+        Array.isArray(l.adjustments) ||
+        l.group
+      )
+        throw Error('图层调整数据无效');
+      for (const [key, min, max] of [
+        ['hue', -180, 180],
+        ['saturation', 0, 200],
+        ['brightness', -100, 100],
+        ['contrast', -100, 100],
+      ]) {
+        const n = l.adjustments[key];
+        if (n !== undefined && (!Number.isFinite(n) || n < min || n > max))
+          throw Error('图层调整范围无效');
+      }
+    }
+    if (l.group && l.clipping) throw Error('图层组不能作为剪贴层');
   });
   const parents = [];
   p.layers.forEach((l, i) => {
@@ -96,9 +133,15 @@ export function validate(p) {
   });
   return p;
 }
+function encodeBytes(c) {
+  let s = '';
+  for (let i = 0; i < c.length; i += 8192) s += String.fromCharCode(...c.subarray(i, i + 8192));
+  return btoa(s);
+}
 export function serialize(p) {
   return JSON.stringify({
     ...p,
+    layers: p.layers.map((l) => ({ ...l, ...(l.mask ? { mask: encodeBytes(l.mask) } : {}) })),
     frames: p.frames.map((f) => ({
       ...f,
       cels: f.cels.map((c) => {
@@ -113,6 +156,13 @@ export function serialize(p) {
 export function deserialize(s) {
   const p = JSON.parse(s);
   if (!p.frames || !Array.isArray(p.frames)) throw Error('不是像素画室项目');
+  if (!Array.isArray(p.layers) || p.layers.length > LIMITS.layers) throw Error('图层数据无效');
+  p.layers = p.layers.map((l) => {
+    if (l.mask === undefined) return l;
+    if (typeof l.mask !== 'string' || l.mask.length > Math.ceil(LIMITS.dimension ** 2 / 3) * 4)
+      throw Error('图层遮罩数据无效');
+    return { ...l, mask: Uint8ClampedArray.from(atob(l.mask), (x) => x.charCodeAt(0)) };
+  });
   validate({
     ...p,
     frames: p.frames.map((f) => ({
@@ -131,41 +181,7 @@ export function deserialize(s) {
   }));
   return validate(p);
 }
-export function composite(p, frame) {
-  const length = p.w * p.h * 4;
-  function blend(out, src, opacity) {
-    for (let i = 0; i < length; i += 4) {
-      const sa = Math.round((src[i + 3] * opacity) / 255),
-        ba = out[i + 3];
-      if (!sa) continue;
-      if (!ba) {
-        out.set(src.subarray(i, i + 3), i);
-        out[i + 3] = sa;
-        continue;
-      }
-      const alpha = sa + ba - Math.round((sa * ba) / 255);
-      for (let c = 0; c < 3; c++)
-        out[i + c] = out[i + c] + Math.trunc(((src[i + c] - out[i + c]) * sa) / alpha);
-      out[i + 3] = alpha;
-    }
-  }
-  let index = 0;
-  function render(level, out = new Uint8ClampedArray(length), visible = true) {
-    while (index < p.layers.length && (p.layers[index].level || 0) >= level) {
-      const k = index++,
-        l = p.layers[k],
-        on = visible && l.visible;
-      if (l.group && l.isolated === false) {
-        render((l.level || 0) + 1, out, on);
-        continue;
-      }
-      const src = l.group ? render((l.level || 0) + 1) : p.frames[frame].cels[k];
-      if (on) blend(out, src, l.opacity);
-    }
-    return out;
-  }
-  return render(0);
-}
+export const composite = renderComposite;
 export function rgba(hex) {
   return [
     parseInt(hex.slice(1, 3), 16),

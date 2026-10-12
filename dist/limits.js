@@ -22,7 +22,7 @@ export function projectUsage(project) {
   const pixels = area * layers * frames;
   return {
     pixels,
-    bytes: pixels * 4,
+    bytes: pixels * 4 + project.layers.reduce((n, l) => n + (l.mask?.byteLength || 0), 0),
     ratio: Math.max(pixels / LIMITS.pixels, layers / LIMITS.layers, frames / LIMITS.frames),
     moreLayers: Math.max(
       0,

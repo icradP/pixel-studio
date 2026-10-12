@@ -75,7 +75,7 @@ test('malformed Aseprite and unsupported blending do not silently lose data', as
   const p = blank(2, 2),
     bytes = writeAse(p);
   const v = new DataView(bytes.buffer);
-  v.setUint16(144 + 16, 1, true);
+  v.setUint16(144 + 16, 19, true);
   await assert.rejects(readAse(bytes.buffer), /混合/);
   await assert.rejects(readAse(new Uint8Array([1, 2]).buffer));
 });

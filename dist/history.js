@@ -4,7 +4,7 @@ import { clone } from './engine.js';
 const projectBytes = (project) =>
   project.frames.reduce(
     (total, frame) => total + frame.cels.reduce((bytes, cel) => bytes + cel.byteLength, 0),
-    0,
+    project.layers.reduce((total, l) => total + (l.mask?.byteLength || 0), 0),
   );
 
 /** Snapshots are owned by history until restored; both stacks share one memory budget. */
