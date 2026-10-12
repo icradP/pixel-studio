@@ -63,96 +63,105 @@ button {
   background: #ffffff08;
   box-shadow: inset 0 -2px 0 #72baff80;
 }
-/* Procreate-style recessed side slots, with compact rectangular grips. */
+/* A narrow translucent rail lets the artwork show through both capsule tracks. */
 .size-rail {
   left: 0;
-  width: 42px;
-  padding: 12px 2px 6px;
-  border-radius: 0 12px 12px 0;
-  background: linear-gradient(90deg, #222328, #303137);
-  border: 1px solid #ffffff15;
-  border-left: 0;
-  box-shadow:
-    2px 3px 12px #0004,
-    inset -1px 0 #ffffff08;
+  width: 32px;
+  padding: 6px 0 3px;
+  gap: 3px;
+  border: 0;
+  border-radius: 0 8px 8px 0;
+  background: #20212599;
+  box-shadow: none;
 }
 .size-rail > span {
-  font-size: 9px;
-  color: #a9abb5;
+  display: none;
 }
 .size-rail input[type='range'] {
-  width: 38px;
+  width: 40px;
   padding: 0;
   cursor: ns-resize;
 }
 .size-rail input[type='range']::-webkit-slider-runnable-track {
-  width: 12px;
+  width: 22px;
   height: 100%;
-  border-radius: 5px;
-  border: 1px solid #0e0f12;
-  background: linear-gradient(90deg, #15161a, #1e1f24);
-  box-shadow:
-    inset 1px 1px 3px #0009,
-    1px 0 #ffffff0a;
+  border: 3px solid transparent;
+  border-radius: 9px;
+  background: var(--slider-track);
+  box-shadow: none;
 }
 .size-rail input[type='range']::-webkit-slider-thumb {
-  appearance: none;
-  width: 32px;
-  height: 13px;
-  margin: 0 0 0 -11px;
+  width: 16px;
+  height: 8px;
+  margin: 0;
+  border: 0;
   border-radius: 4px;
-  border: 1px solid #85878e;
-  background: linear-gradient(#e9e9ed, #babcc4 45%, #a5a7af);
-  box-shadow:
-    0 2px 4px #000b,
-    inset 0 1px #fff9;
+  background: var(--slider-grip);
+  box-shadow: none;
 }
 .size-rail input[type='range']::-moz-range-track {
-  width: 12px;
+  width: 22px;
   height: 100%;
-  background: #17181c;
-  border: 1px solid #101114;
-  border-radius: 5px;
-  box-shadow: inset 1px 1px 3px #0009;
-}
-.size-rail input[type='range']::-moz-range-progress {
-  background: transparent;
+  border: 3px solid transparent;
+  border-radius: 9px;
+  background: var(--slider-track);
+  box-shadow: none;
 }
 .size-rail input[type='range']::-moz-range-thumb {
-  width: 30px;
-  height: 12px;
+  width: 16px;
+  height: 8px;
+  border: 0;
   border-radius: 4px;
-  border: 1px solid #85878e;
-  background: linear-gradient(#e9e9ed, #a5a7af);
-  box-shadow: 0 2px 4px #0009;
+  background: var(--slider-grip);
+  box-shadow: none;
+}
+.size-rail input[type='range']:active::-webkit-slider-thumb {
+  background: var(--slider-grip-active);
+}
+.size-rail input[type='range']:active::-moz-range-thumb {
+  background: var(--slider-grip-active);
 }
 #side-modify {
   border: 0;
-  padding-block: 5px;
+  margin: 0;
+  padding-block: 1px;
 }
 #side-modify button {
-  width: 28px;
-  height: 28px;
-  min-height: 28px;
-  margin: 0 6px;
-  padding: 4px;
-  border-radius: 5px;
-  background: #44464f;
-  box-shadow:
-    inset 0 1px #ffffff12,
-    0 1px 2px #0007;
+  width: 32px;
+  height: 30px;
+  min-height: 30px;
+  margin: 0;
+  padding: 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
 }
 #side-history,
 #side-history #floatbar {
-  width: 38px;
+  width: 32px;
 }
 .size-rail button {
-  width: 38px;
+  width: 32px;
+  padding-inline: 6px;
+  color: #cacacf9c;
+}
+.size-rail svg {
+  width: 18px;
+  height: 18px;
+}
+.size-rail button:hover {
+  background: #ffffff0c;
+  color: #e5e5e9cc;
+}
+.size-rail button[aria-pressed='true'] {
+  background: #ffffff13;
+  color: #c7def1;
 }
 #brush-parameter-hud {
-  background: #303137;
-  border: 1px solid var(--surface-rim);
-  box-shadow: var(--surface-shadow);
+  background: #292a30e6;
+  border: 1px solid #ffffff16;
+  box-shadow: 0 8px 24px #0004;
 }
 .layer-face {
   transition:
