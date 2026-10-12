@@ -8,6 +8,9 @@
   --surface-raised: #34353b;
   --surface-inset: #212226;
   --stroke: #ffffff12;
+  --slider-track: #d5d5dc2b;
+  --slider-grip: #d0d0d0b8;
+  --slider-grip-active: #e2e2e2e0;
   --control-radius: 10px;
   --panel-radius: 18px;
   --motion-fast: 120ms;
@@ -337,46 +340,51 @@ input[type='range'] {
   touch-action: none;
   box-shadow: none;
 }
+/* Translucent capsule tracks share the same flat grip in either orientation. */
 input[type='range']::-webkit-slider-runnable-track {
-  height: 4px;
-  border-radius: 4px;
-  background: linear-gradient(
-    to right,
-    var(--accent) var(--range-value, 0%),
-    #ffffff24 var(--range-value, 0%)
-  );
+  height: 18px;
+  border: 3px solid transparent;
+  border-radius: 9px;
+  background: var(--slider-track);
+  box-shadow: none;
 }
 input[type='range']::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 22px;
-  height: 22px;
-  margin-top: -9px;
+  width: 8px;
+  height: 12px;
+  margin: 0;
   border: 0;
-  border-radius: 50%;
-  background: #f6f7fa;
-  box-shadow: 0 2px 6px #0005;
+  border-radius: 4px;
+  background: var(--slider-grip);
+  box-shadow: none;
+  transition: background-color 120ms ease;
 }
 input[type='range']::-moz-range-track {
-  height: 4px;
-  border-radius: 4px;
-  background: #ffffff24;
+  box-sizing: border-box;
+  height: 18px;
+  border: 3px solid transparent;
+  border-radius: 9px;
+  background: var(--slider-track);
+  box-shadow: none;
 }
 input[type='range']::-moz-range-progress {
-  height: 4px;
-  border-radius: 4px;
-  background: var(--accent);
+  background: transparent;
 }
 input[type='range']::-moz-range-thumb {
-  width: 22px;
-  height: 22px;
+  width: 8px;
+  height: 12px;
   border: 0;
-  border-radius: 50%;
-  background: #f6f7fa;
-  box-shadow: 0 2px 6px #0005;
+  border-radius: 4px;
+  background: var(--slider-grip);
+  box-shadow: none;
+  transition: background-color 120ms ease;
 }
 input[type='range']:active::-webkit-slider-thumb {
-  background: #fff;
+  background: var(--slider-grip-active);
+}
+input[type='range']:active::-moz-range-thumb {
+  background: var(--slider-grip-active);
 }
 .size-rail input[type='range'] {
   width: 110px;
