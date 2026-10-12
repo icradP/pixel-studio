@@ -1,34 +1,202 @@
-import {showDialog,hideDialog} from './dialogs.js';
+import { showDialog, hideDialog } from './dialogs.js';
+import { closeIcon } from './floating.js';
 
-export async function importPixelImage(file){
- const url=URL.createObjectURL(file),img=new Image();img.src=url;
- try{
-  await img.decode();const sourceW=img.naturalWidth,sourceH=img.naturalHeight;
-  if(!sourceW||!sourceH||sourceW*sourceH>40000000)throw Error('图片过大，请先缩小到 4000 万像素以内。');
-  const scale=Math.min(1,1024/Math.max(sourceW,sourceH)),w=Math.max(1,Math.round(sourceW*scale)),h=Math.max(1,Math.round(sourceH*scale));
-  const source=document.createElement('canvas');source.width=w;source.height=h;const context=source.getContext('2d',{willReadFrequently:true});context.drawImage(img,0,0,w,h);const data=context.getImageData(0,0,w,h).data;
-  const d=document.createElement('dialog');d.id='pixel-import-dialog';d.setAttribute('aria-labelledby','pixel-import-title');
-  d.innerHTML=`<header class="pixel-import-head"><div><span class="section-kicker">PERFECT PIXEL</span><h2 id="pixel-import-title">导入为完美像素</h2><p>整理网格，每一格都是一颗可编辑的像素。</p></div><button aria-label="取消图片导入" data-dismiss>×</button></header><div class="pixel-import-body"><div class="pixel-previews"><figure><figcaption>原图 <span>${sourceW} × ${sourceH}</span></figcaption><div class="pixel-preview source-preview"></div></figure><figure><figcaption>转换预览 <span id="pixel-result-size">等待识别</span></figcaption><div class="pixel-preview result-preview"><p>正在识别像素网格…</p></div></figure></div><section class="pixel-import-options"><div class="segment"><button id="pixel-auto" type="button" aria-pressed="true">自动识别网格</button><button id="pixel-manual" type="button" aria-pressed="false">手动尺寸</button></div><div class="pixel-dimensions"><label>输出宽度<input id="pixel-width" type="number" min="1" max="${Math.min(512,w)}" value="${Math.min(128,w)}" disabled></label><label>输出高度<input id="pixel-height" type="number" min="1" max="${Math.min(512,h)}" value="${Math.max(1,Math.min(512,h,Math.round(h*Math.min(128,w)/w)))}" disabled></label></div><div class="pixel-selects"><label>采样方式<select id="pixel-sampling"><option value="majority">主色采样 · 推荐</option><option value="median">中值采样</option><option value="center">中心采样</option></select></label><label>调色板<select id="pixel-palette"><option value="0">保留采样颜色</option><option value="16">16 色</option><option value="32">32 色</option><option value="64">64 色</option><option value="128">128 色</option></select></label></div><label>网格贴合 <span id="pixel-refine-value">25%</span><input id="pixel-refine" type="range" min="0" max="45" value="25"></label><button id="pixel-generate" class="panel-wide">重新生成预览</button><p id="pixel-convert-status" class="pixel-convert-status" role="status" aria-live="polite"></p><p class="help">适合 AI 生成的像素风格图。普通照片、插画可用手动尺寸像素化，不包含 AI 重绘。${scale<1?'分析图已等比缩小到 '+w+' × '+h+'。':''}</p><a class="pixel-credit" href="https://github.com/theamusing/perfectPixel" target="_blank" rel="noopener">基于 perfectPixel · MIT ↗</a></section></div><footer class="pixel-import-footer"><button id="pixel-original">${Math.max(sourceW,sourceH)>512?'缩小并直接导入':'直接导入原图'}</button><div><button id="pixel-download" disabled>下载 PNG</button><button id="pixel-accept" class="primary" disabled>使用转换结果</button></div></footer><p class="pixel-private">图片仅在此设备处理 · 导入后创建新作品，原作品保留</p>`;
-  document.body.append(d);d.querySelector('.source-preview').append(source);showDialog(d);
-  return await new Promise(resolve=>{
-   let worker=null,timer=null,result=null,manual=false,closed=false,requestId=0;
-   const q=s=>d.querySelector(s),status=q('#pixel-convert-status'),accept=q('#pixel-accept'),save=q('#pixel-download'),generate=q('#pixel-generate');
-   const stop=()=>{worker?.terminate();worker=null;clearTimeout(timer);};
-   const invalidate=()=>{requestId++;stop();result=null;accept.disabled=save.disabled=true;generate.disabled=false;q('.result-preview').classList.add('outdated');status.textContent='参数已改变，请重新生成预览。';};
-   const finish=async value=>{if(closed)return;closed=true;stop();await hideDialog(d);d.remove();resolve(value);};
-   const renderResult=value=>{result=value;const c=document.createElement('canvas');c.width=result.w;c.height=result.h;c.getContext('2d').putImageData(new ImageData(result.data,result.w,result.h),0,0);q('.result-preview').replaceChildren(c);q('.result-preview').classList.remove('outdated');q('#pixel-result-size').textContent=result.w+' × '+result.h;status.textContent=(result.method==='manual'?'手动网格':result.method==='fft'?'频谱识别':'边缘识别')+' · 已完成，可导入继续绘画';accept.disabled=save.disabled=false;};
-   const run=()=>{
-    invalidate();const id=requestId;let grid=null;
-    if(manual){grid=[Number(q('#pixel-width').value),Number(q('#pixel-height').value)];if(grid.some((n,i)=>!Number.isInteger(n)||n<1||n>Math.min(512,i?h:w))){status.textContent='请输入有效的宽高，范围为 1–512 且不大于处理图。';return;}}
-    status.textContent='正在整理像素…';generate.disabled=true;const fail=message=>{if(id!==requestId||closed)return;stop();generate.disabled=false;status.textContent=message;q('#pixel-result-size').textContent='尚未转换';if(!q('.result-preview canvas'))q('.result-preview').innerHTML='<p>自动识别没有找到稳定网格时，<br>试试手动尺寸。</p>';};
-    try{worker=new Worker(new URL('./pixel-worker.js',import.meta.url),{type:'module'});worker.onmessage=({data:message})=>{if(message.id!==requestId||closed)return;if(message.error){fail(message.error);return;}stop();generate.disabled=false;renderResult(message.result);};worker.onerror=()=>fail('转换组件未能加载，请联网更新画室后重试。');timer=setTimeout(()=>fail('处理时间较长，请使用手动尺寸或缩小原图后重试。'),25000);worker.postMessage({id,image:{w,h,data},options:{grid,sampleMethod:q('#pixel-sampling').value,refineIntensity:Number(q('#pixel-refine').value)/100,colors:Number(q('#pixel-palette').value)}});}catch{fail('此浏览器暂时无法运行转换组件，仍可直接导入图片。');}
-   };
-   for(const mode of ['auto','manual'])q('#pixel-'+mode).onclick=()=>{manual=mode==='manual';q('#pixel-auto').setAttribute('aria-pressed',!manual);q('#pixel-manual').setAttribute('aria-pressed',manual);q('#pixel-width').disabled=q('#pixel-height').disabled=!manual;invalidate();};
-   for(const selector of ['#pixel-width','#pixel-height','#pixel-sampling','#pixel-palette','#pixel-refine'])q(selector).oninput=()=>{q('#pixel-refine-value').textContent=q('#pixel-refine').value+'%';invalidate();};
-   generate.onclick=run;accept.onclick=()=>{if(result)finish(result);};
-   save.onclick=()=>{if(!result)return;const canvas=q('.result-preview canvas');canvas.toBlob(blob=>{if(!blob)return;const link=document.createElement('a'),objectUrl=URL.createObjectURL(blob);link.href=objectUrl;link.download=file.name.replace(/\.[^.]+$/,'')+'-perfect-pixel.png';link.click();setTimeout(()=>URL.revokeObjectURL(objectUrl),60000);},'image/png');};
-   q('#pixel-original').onclick=()=>{const ratio=Math.min(1,512/Math.max(sourceW,sourceH)),ow=Math.max(1,Math.round(sourceW*ratio)),oh=Math.max(1,Math.round(sourceH*ratio)),c=document.createElement('canvas');c.width=ow;c.height=oh;const ctx=c.getContext('2d');ctx.drawImage(img,0,0,ow,oh);finish({w:ow,h:oh,data:ctx.getImageData(0,0,ow,oh).data,method:'original'});};
-   q('[data-dismiss]').onclick=()=>finish(null);d.addEventListener('cancel',e=>{e.preventDefault();finish(null);});d.addEventListener('click',e=>{if(e.target===d){const r=d.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)finish(null);}});run();
-  });
- }finally{URL.revokeObjectURL(url);}
+export async function importPixelImage(file) {
+  const url = URL.createObjectURL(file),
+    img = new Image();
+  img.src = url;
+  try {
+    await img.decode();
+    const sourceW = img.naturalWidth,
+      sourceH = img.naturalHeight;
+    if (!sourceW || !sourceH || sourceW * sourceH > 40000000)
+      throw Error('图片过大，请先缩小到 4000 万像素以内。');
+    const scale = Math.min(1, 1024 / Math.max(sourceW, sourceH)),
+      w = Math.max(1, Math.round(sourceW * scale)),
+      h = Math.max(1, Math.round(sourceH * scale));
+    const source = document.createElement('canvas');
+    source.width = w;
+    source.height = h;
+    const context = source.getContext('2d', { willReadFrequently: true });
+    context.drawImage(img, 0, 0, w, h);
+    const data = context.getImageData(0, 0, w, h).data;
+    const d = document.createElement('dialog');
+    d.id = 'pixel-import-dialog';
+    d.setAttribute('aria-labelledby', 'pixel-import-title');
+    d.innerHTML = `<header class="pixel-import-head"><div><span class="section-kicker">PERFECT PIXEL</span><h2 id="pixel-import-title">导入为完美像素</h2><p>整理网格，每一格都是一颗可编辑的像素。</p></div><button aria-label="取消图片导入" data-dismiss>×</button></header><div class="pixel-import-body"><div class="pixel-previews"><figure><figcaption>原图 <span>${sourceW} × ${sourceH}</span></figcaption><div class="pixel-preview source-preview"></div></figure><figure><figcaption>转换预览 <span id="pixel-result-size">等待识别</span></figcaption><div class="pixel-preview result-preview"><p>正在识别像素网格…</p></div></figure></div><section class="pixel-import-options"><div class="segment"><button id="pixel-auto" type="button" aria-pressed="true">自动识别网格</button><button id="pixel-manual" type="button" aria-pressed="false">手动尺寸</button></div><div class="pixel-dimensions"><label>输出宽度<input id="pixel-width" type="number" min="1" max="${Math.min(512, w)}" value="${Math.min(128, w)}" disabled></label><label>输出高度<input id="pixel-height" type="number" min="1" max="${Math.min(512, h)}" value="${Math.max(1, Math.min(512, h, Math.round((h * Math.min(128, w)) / w)))}" disabled></label></div><div class="pixel-selects"><label>采样方式<select id="pixel-sampling"><option value="majority">主色采样 · 推荐</option><option value="median">中值采样</option><option value="center">中心采样</option></select></label><label>调色板<select id="pixel-palette"><option value="0">保留采样颜色</option><option value="16">16 色</option><option value="32">32 色</option><option value="64">64 色</option><option value="128">128 色</option></select></label></div><label>网格贴合 <span id="pixel-refine-value">25%</span><input id="pixel-refine" type="range" min="0" max="45" value="25"></label><button id="pixel-generate" class="panel-wide">重新生成预览</button><p id="pixel-convert-status" class="pixel-convert-status" role="status" aria-live="polite"></p><p class="help">适合 AI 生成的像素风格图。普通照片、插画可用手动尺寸像素化，不包含 AI 重绘。${scale < 1 ? '分析图已等比缩小到 ' + w + ' × ' + h + '。' : ''}</p><a class="pixel-credit" href="https://github.com/theamusing/perfectPixel" target="_blank" rel="noopener">基于 perfectPixel · MIT ↗</a></section></div><footer class="pixel-import-footer"><button id="pixel-original">${Math.max(sourceW, sourceH) > 512 ? '缩小并直接导入' : '直接导入原图'}</button><div><button id="pixel-download" disabled>下载 PNG</button><button id="pixel-accept" class="primary" disabled>使用转换结果</button></div></footer><p class="pixel-private">图片仅在此设备处理 · 导入后创建新作品，原作品保留</p>`;
+    document.body.append(d);
+    d.querySelector('.source-preview').append(source);
+    d.querySelector('[data-dismiss]').innerHTML = closeIcon;
+    showDialog(d);
+    return await new Promise((resolve) => {
+      let worker = null,
+        timer = null,
+        result = null,
+        manual = false,
+        closed = false,
+        requestId = 0;
+      const q = (s) => d.querySelector(s),
+        status = q('#pixel-convert-status'),
+        accept = q('#pixel-accept'),
+        save = q('#pixel-download'),
+        generate = q('#pixel-generate');
+      const stop = () => {
+        worker?.terminate();
+        worker = null;
+        clearTimeout(timer);
+      };
+      const invalidate = () => {
+        requestId++;
+        stop();
+        result = null;
+        accept.disabled = save.disabled = true;
+        generate.disabled = false;
+        q('.result-preview').classList.add('outdated');
+        status.textContent = '参数已改变，请重新生成预览。';
+      };
+      const finish = async (value) => {
+        if (closed) return;
+        closed = true;
+        stop();
+        await hideDialog(d);
+        d.remove();
+        resolve(value);
+      };
+      const renderResult = (value) => {
+        result = value;
+        const c = document.createElement('canvas');
+        c.width = result.w;
+        c.height = result.h;
+        c.getContext('2d').putImageData(new ImageData(result.data, result.w, result.h), 0, 0);
+        q('.result-preview').replaceChildren(c);
+        q('.result-preview').classList.remove('outdated');
+        q('#pixel-result-size').textContent = result.w + ' × ' + result.h;
+        status.textContent =
+          (result.method === 'manual'
+            ? '手动网格'
+            : result.method === 'fft'
+              ? '频谱识别'
+              : '边缘识别') + ' · 已完成，可导入继续绘画';
+        accept.disabled = save.disabled = false;
+      };
+      const run = () => {
+        invalidate();
+        const id = requestId;
+        let grid = null;
+        if (manual) {
+          grid = [Number(q('#pixel-width').value), Number(q('#pixel-height').value)];
+          if (grid.some((n, i) => !Number.isInteger(n) || n < 1 || n > Math.min(512, i ? h : w))) {
+            status.textContent = '请输入有效的宽高，范围为 1–512 且不大于处理图。';
+            return;
+          }
+        }
+        status.textContent = '正在整理像素…';
+        generate.disabled = true;
+        const fail = (message) => {
+          if (id !== requestId || closed) return;
+          stop();
+          generate.disabled = false;
+          status.textContent = message;
+          q('#pixel-result-size').textContent = '尚未转换';
+          if (!q('.result-preview canvas'))
+            q('.result-preview').innerHTML =
+              '<p>自动识别没有找到稳定网格时，<br>试试手动尺寸。</p>';
+        };
+        try {
+          worker = new Worker(new URL('./pixel-worker.js', import.meta.url), { type: 'module' });
+          worker.onmessage = ({ data: message }) => {
+            if (message.id !== requestId || closed) return;
+            if (message.error) {
+              fail(message.error);
+              return;
+            }
+            stop();
+            generate.disabled = false;
+            renderResult(message.result);
+          };
+          worker.onerror = () => fail('转换组件未能加载，请联网更新画室后重试。');
+          timer = setTimeout(() => fail('处理时间较长，请使用手动尺寸或缩小原图后重试。'), 25000);
+          worker.postMessage({
+            id,
+            image: { w, h, data },
+            options: {
+              grid,
+              sampleMethod: q('#pixel-sampling').value,
+              refineIntensity: Number(q('#pixel-refine').value) / 100,
+              colors: Number(q('#pixel-palette').value),
+            },
+          });
+        } catch {
+          fail('此浏览器暂时无法运行转换组件，仍可直接导入图片。');
+        }
+      };
+      for (const mode of ['auto', 'manual'])
+        q('#pixel-' + mode).onclick = () => {
+          manual = mode === 'manual';
+          q('#pixel-auto').setAttribute('aria-pressed', !manual);
+          q('#pixel-manual').setAttribute('aria-pressed', manual);
+          q('#pixel-width').disabled = q('#pixel-height').disabled = !manual;
+          invalidate();
+        };
+      for (const selector of [
+        '#pixel-width',
+        '#pixel-height',
+        '#pixel-sampling',
+        '#pixel-palette',
+        '#pixel-refine',
+      ])
+        q(selector).oninput = () => {
+          q('#pixel-refine-value').textContent = q('#pixel-refine').value + '%';
+          invalidate();
+        };
+      generate.onclick = run;
+      accept.onclick = () => {
+        if (result) finish(result);
+      };
+      save.onclick = () => {
+        if (!result) return;
+        const canvas = q('.result-preview canvas');
+        canvas.toBlob((blob) => {
+          if (!blob) return;
+          const link = document.createElement('a'),
+            objectUrl = URL.createObjectURL(blob);
+          link.href = objectUrl;
+          link.download = file.name.replace(/\.[^.]+$/, '') + '-perfect-pixel.png';
+          link.click();
+          setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+        }, 'image/png');
+      };
+      q('#pixel-original').onclick = () => {
+        const ratio = Math.min(1, 512 / Math.max(sourceW, sourceH)),
+          ow = Math.max(1, Math.round(sourceW * ratio)),
+          oh = Math.max(1, Math.round(sourceH * ratio)),
+          c = document.createElement('canvas');
+        c.width = ow;
+        c.height = oh;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0, ow, oh);
+        finish({ w: ow, h: oh, data: ctx.getImageData(0, 0, ow, oh).data, method: 'original' });
+      };
+      q('[data-dismiss]').onclick = () => finish(null);
+      d.addEventListener('cancel', (e) => {
+        e.preventDefault();
+        finish(null);
+      });
+      d.addEventListener('click', (e) => {
+        if (e.target === d) {
+          const r = d.getBoundingClientRect();
+          if (
+            e.clientX < r.left ||
+            e.clientX > r.right ||
+            e.clientY < r.top ||
+            e.clientY > r.bottom
+          )
+            finish(null);
+        }
+      });
+      run();
+    });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
