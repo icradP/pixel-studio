@@ -159,6 +159,82 @@ test('recognized shape adjustment keeps the start anchor and scales/rotates cont
     { x: 4, y: 25 },
   ]);
 });
+for (const [kind, raw] of [
+  [
+    'line',
+    path([
+      { x: 12.85, y: 14.65 },
+      { x: 49.7, y: 36.2 },
+    ]),
+  ],
+  [
+    'rectangle',
+    path([
+      { x: 12.85, y: 14.65 },
+      { x: 53.1, y: 16.1 },
+      { x: 52.6, y: 42.5 },
+      { x: 10.4, y: 40.6 },
+      { x: 12.85, y: 14.65 },
+    ]),
+  ],
+  ...[
+    ['circle', 25.4],
+    ['ellipse', 17],
+  ].map(([kind, ry]) => [
+    kind,
+    Array.from({ length: 97 }, (_, i) => {
+      const t = 0.8 + (i / 96) * Math.PI * 2,
+        wobble = 1 + 0.04 * Math.cos(3 * t + 0.9);
+      return { x: 48.7 + 26 * Math.cos(t) * wobble, y: 49.8 + ry * Math.sin(t) * wobble };
+    }),
+  ]),
+  [
+    'polygon',
+    path([
+      { x: 12.85, y: 14.65 },
+      { x: 49.7, y: 17.9 },
+      { x: 35.4, y: 47.2 },
+      { x: 12.85, y: 14.65 },
+    ]),
+  ],
+])
+  test(`${kind} fitting and every adjustment preserve the first painted pixel`, () => {
+    const angles = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
+    if (kind !== 'ellipse') angles.push(0.7);
+    for (const angle of angles)
+      for (const direction of [1, -1]) {
+        const samples = raw.map(({ x, y }) => ({
+            x: 100 + x * Math.cos(angle) - direction * y * Math.sin(angle),
+            y: 100 + x * Math.sin(angle) + direction * y * Math.cos(angle),
+          })),
+          anchor = { x: Math.floor(samples[0].x), y: Math.floor(samples[0].y) },
+          shape = recognizeShape(samples),
+          hold = samples.at(-1);
+        assert.equal(shape.kind, kind);
+        assert.deepEqual(shape.anchor, anchor);
+        assert.deepEqual(shape.points[0], anchor);
+        if (kind !== 'line') assert.deepEqual(shape.points.at(-1), anchor);
+        for (const [dx, dy] of [
+          [0, 0],
+          [0.2, -0.3],
+          [35, -22],
+          [-40, 50],
+          [300, 0],
+        ]) {
+          const adjusted = adjustShape(shape, hold, { x: hold.x + dx, y: hold.y + dy }),
+            visited = [];
+          assert.deepEqual(adjusted[0], anchor);
+          if (kind !== 'line') assert.deepEqual(adjusted.at(-1), anchor);
+          traceShape(adjusted, 256, 256, 0, (x, y) => visited.push({ x, y }));
+          assert.equal(visited.filter((p) => p.x === anchor.x && p.y === anchor.y).length, 1);
+        }
+        if (shape.ellipse) {
+          const { cx, cy, rx, ry } = shape.ellipse;
+          for (const p of shape.points)
+            assert.ok(Math.abs(Math.hypot((p.x - cx) / rx, (p.y - cy) / ry) - 1) < 1e-12);
+        }
+      }
+  });
 test('circle adjustments resample the analytic circle without accumulating distortion', () => {
   const raw = Array.from({ length: 129 }, (_, i) => ({
       x: 80 + 40 * Math.cos((i / 128) * Math.PI * 2),

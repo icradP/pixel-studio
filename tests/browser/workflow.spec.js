@@ -195,6 +195,19 @@ test('gallery stacks, rename, reorder, unstack and share persist without alterin
   await page.locator('#action-dialog input').fill('像素练习');
   await page.locator('#action-dialog button[type="submit"]').click();
   await expect(page.locator('.stack-card')).toHaveCount(1);
+  await expect(page.locator('.stack-card .stack-count')).toHaveText('2');
+  await expect(page.locator('.stack-card img')).toHaveCount(2);
+  const coverTransform = await page
+    .locator('.stack-card .project-cover')
+    .evaluate((image) => getComputedStyle(image).transform);
+  await expect(page.locator('.stack-card .stack-sheet-1')).not.toHaveCSS(
+    'transform',
+    coverTransform,
+  );
+  await expect(page.locator('.stack-card .project-open')).toHaveAttribute(
+    'aria-label',
+    '打开 像素练习，堆叠，2 件作品',
+  );
   await page.locator('#gallery-select').click();
   await page.locator('.stack-card .project-open').click();
   await expect(page.locator('#gallery-stack-name')).toHaveText('像素练习');
@@ -225,6 +238,9 @@ test('gallery stacks, rename, reorder, unstack and share persist without alterin
   await expect(page.locator('.project-card')).toHaveCount(1);
   await page.locator('#gallery-back').click();
   await expect(page.locator('.project-card')).toHaveCount(2);
+  await expect(page.locator('.stack-card .stack-count')).toHaveText('1');
+  await expect(page.locator('.stack-card img')).toHaveCount(1);
+  await expect(page.locator('.project-card:not(.stack-card) .stack-count')).toHaveCount(0);
   await page.locator('#close-gallery').click();
   expect((await saved(page)).frames).toEqual(before.frames);
 });

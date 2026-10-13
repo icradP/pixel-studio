@@ -1529,11 +1529,11 @@ function trackHold(e) {
       const current = stroke;
       shapeTimer = setTimeout(() => {
         if (stroke !== current) return;
-        const shape = recognizeShape(h.points);
+        const shape = recognizeShape(h.points, current.start);
         if (!shape) return;
         current.quick = { shape, hold: positionFloat(h.event) };
         drawQuick(h.event);
-        toast('已识别' + shape.name + ' · 不抬笔拖动调整大小与方向');
+        toast('已识别' + shape.name + ' · 起笔固定，拖动缩放与旋转');
       }, shapeHoldMs);
     }
   }
@@ -2277,7 +2277,7 @@ function settingsPanel() {
     <section class="setting-group"><h3>触控与画笔</h3>
       <label class="switch"><span>手指绘画<small>关闭后，手指只移动画布</small></span><input id="finger-setting" type="checkbox" ${!penOnly ? 'checked' : ''}></label>
       <label>停笔识别 <output id="shape-delay-value" class="row-value">${(shapeHoldMs / 1000).toFixed(2)} 秒</output><input id="shape-delay" aria-label="停笔识别时间" type="range" min="200" max="3000" step="50" value="${shapeHoldMs}"></label>
-      <details class="settings-help"><summary>手势与形状识别</summary><p>双指拖动、缩放与旋转。双指轻点撤销，三指轻点重做。长按取色；画完不抬笔停留，可识别形状并继续调整。识别时间越短，越快进入调整。</p><p>Pencil 的硬件双击与挤压尚未接入。</p></details>
+      <details class="settings-help"><summary>手势与形状识别</summary><p>双指拖动、缩放与旋转。双指轻点撤销，三指轻点重做。长按取色；画完不抬笔停留，可识别形状；继续拖动时，起笔像素保持固定，可调整大小与方向。识别时间越短，越快进入调整。</p><p>Pencil 的硬件双击与挤压尚未接入。</p></details>
     </section>
     <section class="setting-group"><h3>画布显示</h3>
       <div class="segment display-modes"><button data-display="auto">智能清晰</button><button data-display="smooth">柔和</button><button data-display="pixel">原始像素</button></div>
@@ -2292,7 +2292,7 @@ function settingsPanel() {
     <section class="setting-group"><h3>画室</h3>
       <button id="settings-export" class="panel-wide">分享与导出 <span>项目 · 图片 · 动画 ›</span></button><button id="settings-plugins" class="panel-wide">插件工作台 <span>5 个扩展 · ›</span></button>
       <button id="install-help" class="panel-wide">添加到主屏幕 <span>全屏使用 · ›</span></button>
-      <button id="check-update" class="panel-wide">检查更新 <span>v0.12.1</span></button>
+      <button id="check-update" class="panel-wide">检查更新 <span>v0.12.2</span></button>
     </section>`;
   document
     .querySelectorAll('.mirror-controls [data-mirror]')
@@ -2342,7 +2342,7 @@ function settingsPanel() {
     if (r) {
       await r.update();
       toast('已检查更新；如有新版本，顶部会显示更新提示');
-    } else toast('当前版本 v0.12.1');
+    } else toast('当前版本 v0.12.2');
   };
 }
 function download(data, ext, type) {
