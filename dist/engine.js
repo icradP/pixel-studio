@@ -1,5 +1,6 @@
 import { renderComposite } from './layer-effects.js';
 import { LIMITS } from './limits.js';
+import { validateScene } from './procedural-model.js';
 export const MAX_PIXELS = LIMITS.pixels;
 export function blank(w = 64, h = 64, name = '未命名作品') {
   return {
@@ -22,6 +23,7 @@ export function cloneLayer(l) {
 export function clone(p) {
   return {
     ...p,
+    ...(p.procedural ? { procedural: structuredClone(p.procedural) } : {}),
     ...(p.tags ? { tags: p.tags.map((t) => ({ ...t })) } : {}),
     layers: p.layers.map(cloneLayer),
     frames: p.frames.map((f) => ({ ...f, cels: f.cels.map((c) => new Uint8ClampedArray(c)) })),
@@ -131,6 +133,7 @@ export function validate(p) {
       if (c.length !== p.w * p.h * 4) throw Error('像素数据不完整');
     });
   });
+  validateScene(p.procedural, p);
   return p;
 }
 function encodeBytes(c) {

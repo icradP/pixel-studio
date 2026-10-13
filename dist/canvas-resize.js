@@ -1,5 +1,6 @@
 import { LIMITS } from './limits.js';
 import { validate, cloneLayer } from './engine.js';
+import { moveSceneCanvas } from './procedural-model.js';
 
 // Percent describes the resulting canvas size; the anchor locates the untouched artwork.
 export function proportionalExpansion(project, percent, anchor = [0.5, 0.5]) {
@@ -56,6 +57,9 @@ export function expandCanvas(project, sides) {
   }));
   return validate({
     ...project,
+    ...(project.procedural
+      ? { procedural: moveSceneCanvas(project.procedural, next.w, next.h, next.left, next.top) }
+      : {}),
     w: next.w,
     h: next.h,
     frames,

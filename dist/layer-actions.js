@@ -13,6 +13,7 @@ export function duplicateLayer(project, index) {
     throw Error('复制后超出图层或像素容量上限');
   const layers = project.layers.slice(index, end).map((layer, i) => ({
     ...cloneLayer(layer),
+    ...(layer.id ? { id: crypto.randomUUID() } : {}),
     ...(i ? {} : { name: layer.name.slice(0, 157) + ' 副本' }),
   }));
   project.layers.splice(end, 0, ...layers);
