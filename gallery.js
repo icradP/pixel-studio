@@ -131,14 +131,31 @@ export async function galleryView(host) {
       const button = document.createElement('button');
       button.className = 'project-open';
       button.dataset.itemTouch = '';
-      button.setAttribute('aria-label', '打开 ' + entry.name);
-      const image = document.createElement('img');
-      image.src = record.preview;
-      image.alt = entry.name + '预览';
-      image.loading = 'lazy';
-      image.decoding = 'async';
-      image.draggable = false;
-      button.append(image);
+      button.setAttribute(
+        'aria-label',
+        '打开 ' + entry.name + (entry.members ? `，堆叠，${entry.members.length} 件作品` : ''),
+      );
+      const preview = document.createElement('span');
+      preview.className = 'project-preview';
+      const covers = entry.members ? entry.members.slice(0, 3).map((id) => byId.get(id)) : [record];
+      for (let i = covers.length - 1; i >= 0; i--) {
+        const image = document.createElement('img');
+        image.src = covers[i].preview;
+        image.alt = i ? '' : entry.name + '预览';
+        image.className = i ? 'stack-sheet stack-sheet-' + i : 'project-cover';
+        image.loading = 'lazy';
+        image.decoding = 'async';
+        image.draggable = false;
+        preview.append(image);
+      }
+      if (entry.members) {
+        const badge = document.createElement('span');
+        badge.className = 'stack-count';
+        badge.textContent = entry.members.length;
+        badge.setAttribute('aria-hidden', 'true');
+        preview.append(badge);
+      }
+      button.append(preview);
       button.onclick = () => {
         if (selecting) {
           const all = members(entry).every((id) => selected.has(id));

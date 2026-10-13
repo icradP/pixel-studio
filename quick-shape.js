@@ -63,8 +63,23 @@ function simplify(points, epsilon) {
       ]
     : [points[0], points.at(-1)];
 }
-export function recognizeShape(raw) {
-  const points = raw.filter((p, i) => !i || distance(p, raw[i - 1]) > 0.1);
+function ellipsePoints(ellipse, anchor, count) {
+  const { cx, cy, rx, ry, start } = ellipse;
+  return Array.from({ length: count + 1 }, (_, i) => {
+    if (!i || i === count) return { ...anchor };
+    const t = start + (i / count) * Math.PI * 2;
+    return { x: cx + rx * Math.cos(t), y: cy + ry * Math.sin(t) };
+  });
+}
+export function recognizeShape(raw, startPixel) {
+  if (raw.length < 2) return null;
+  // Freehand stamps floor the pointer position. Keep that exact pixel as the
+  // origin while retaining subpixel differences for smooth geometric fitting.
+  const anchor = startPixel || { x: Math.floor(raw[0].x), y: Math.floor(raw[0].y) },
+    points = raw
+      .filter((p, i) => !i || distance(p, raw[i - 1]) > 0.1)
+      .map((p) => ({ x: anchor.x + p.x - raw[0].x, y: anchor.y + p.y - raw[0].y }));
+  points[0] = { ...anchor };
   if (points.length < 2) return null;
   const x0 = Math.min(...points.map((p) => p.x)),
     x1 = Math.max(...points.map((p) => p.x)),
@@ -104,20 +119,20 @@ export function recognizeShape(raw) {
           x: (p.x - first.x) * c + (p.y - first.y) * s,
           y: -(p.x - first.x) * s + (p.y - first.y) * c,
         })),
-        a = Math.min(...local.map((p) => p.x)),
-        b = Math.max(...local.map((p) => p.x)),
-        d = Math.min(...local.map((p) => p.y)),
-        e = Math.max(...local.map((p) => p.y));
+        width = Math.max(...local.map((p) => p.x)) - Math.min(...local.map((p) => p.x)),
+        height =
+          (Math.max(...local.map((p) => p.y)) - Math.min(...local.map((p) => p.y))) *
+          Math.sign(local[2].y);
       return {
         kind: 'rectangle',
         name: '矩形',
         anchor: first,
         points: [
-          [a, d],
-          [b, d],
-          [b, e],
-          [a, e],
-          [a, d],
+          [0, 0],
+          [width, 0],
+          [width, height],
+          [0, height],
+          [0, 0],
         ].map(([x, y]) => ({ x: first.x + x * c - y * s, y: first.y + x * s + y * c })),
       };
     }
@@ -134,17 +149,26 @@ export function recognizeShape(raw) {
       const circle = Math.abs(w - h) / Math.max(w, h) < 0.16,
         rx = circle ? (w + h) / 4 : w / 2,
         ry = circle ? rx : h / 2,
-        start = Math.atan2((first.y - cy) / ry, (first.x - cx) / rx);
+        start = Math.atan2((first.y - cy) / ry, (first.x - cx) / rx),
+        // Move the fitted center so its perimeter passes through the first
+        // painted pixel, rather than projecting that pixel onto a new perimeter.
+        ellipse = {
+          cx: first.x - rx * Math.cos(start),
+          cy: first.y - ry * Math.sin(start),
+          rx,
+          ry,
+          start,
+        };
       return {
         kind: circle ? 'circle' : 'ellipse',
         name: circle ? '圆形' : '椭圆',
         anchor: first,
-        ellipse: { cx, cy, rx, ry, start },
-        reference: { x: cx - rx * Math.cos(start), y: cy - ry * Math.sin(start) },
-        points: Array.from({ length: 65 }, (_, i) => {
-          const t = start + (i / 64) * Math.PI * 2;
-          return { x: cx + rx * Math.cos(t), y: cy + ry * Math.sin(t) };
-        }),
+        ellipse,
+        reference: {
+          x: ellipse.cx - rx * Math.cos(start),
+          y: ellipse.cy - ry * Math.sin(start),
+        },
+        points: ellipsePoints(ellipse, first, 64),
       };
     }
   }
@@ -173,15 +197,12 @@ export function adjustShape(shape, hold, current) {
     s = Math.sin(angle);
   let points = shape.points;
   if (shape.ellipse) {
-    const { cx, cy, rx, ry, start } = shape.ellipse,
+    const { rx, ry } = shape.ellipse,
       count = Math.max(
         24,
         Math.min(2048, Math.ceil(Math.PI * Math.sqrt(8 * Math.max(rx, ry) * scale))),
       );
-    points = Array.from({ length: count + 1 }, (_, i) => {
-      const t = start + (i / count) * Math.PI * 2;
-      return { x: cx + rx * Math.cos(t), y: cy + ry * Math.sin(t) };
-    });
+    points = ellipsePoints(shape.ellipse, anchor, count);
   }
   return points.map((p) => {
     const x = p.x - anchor.x,
