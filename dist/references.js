@@ -15,7 +15,7 @@ export function createReferences(host) {
       return;
     }
     const root = document.createElement('aside');
-    root.className = 'studio-window reference-window';
+    root.className = 'studio-window reference-window reference-controls-hidden';
     root.id = 'reference-' + ++serial;
     root.setAttribute('role', 'dialog');
     root.setAttribute('aria-label', '参考小窗 ' + serial);
@@ -24,6 +24,12 @@ export function createReferences(host) {
     const q = (s) => root.querySelector(s),
       canvas = q('canvas'),
       viewport = q('.reference-viewport');
+    viewport.tabIndex = 0;
+    viewport.setAttribute('role', 'group');
+    viewport.setAttribute(
+      'aria-label',
+      '参考预览，轻点或按回车显示操作栏；拖动平移，双指缩放，长按取色',
+    );
     const ctx = canvas.getContext('2d'),
       pointers = new Map();
     let mode = 'canvas',
@@ -32,13 +38,18 @@ export function createReferences(host) {
       loading = false,
       picking = false,
       hold = null,
-      gesture = null;
+      gesture = null,
+      tapEligible = false;
     let zoom = 1,
       panX = 0,
       panY = 0,
       geometry = null,
       lastWidth = 0,
       lastHeight = 0;
+    let controlsVisible = false,
+      hideTimer;
+    const interactions = new Set(),
+      listeners = new AbortController();
     const getSource = () => (mode === 'canvas' ? source : image);
     const drawJob = createRenderScheduler(draw);
     function fit() {
@@ -96,6 +107,9 @@ export function createReferences(host) {
       onClose: () => {
         closed = true;
         clearTimeout(hold);
+        clearTimeout(hideTimer);
+        listeners.abort();
+        interactions.clear();
         drawJob.cancel();
         observer.disconnect();
         windows.delete(item);
@@ -108,6 +122,81 @@ export function createReferences(host) {
         }
       },
     });
+    const chrome = [
+      q('header'),
+      q('.reference-toolbar'),
+      q('.reference-note'),
+      ...root.querySelectorAll('.window-resize'),
+    ];
+    function busy() {
+      return (
+        interactions.size ||
+        loading ||
+        root.classList.contains('float-collapsed') ||
+        (root.contains(document.activeElement) && document.activeElement.matches(':focus-visible'))
+      );
+    }
+    function hideLater() {
+      clearTimeout(hideTimer);
+      if (closed || !controlsVisible || busy()) return;
+      hideTimer = setTimeout(() => {
+        if (!busy()) showControls(false);
+      }, 2400);
+    }
+    function showControls(visible) {
+      if (closed) return;
+      visible ||= root.classList.contains('float-collapsed');
+      controlsVisible = visible;
+      root.classList.toggle('reference-controls-hidden', !visible);
+      for (const element of chrome) element.inert = !visible;
+      if (!visible && chrome.some((element) => element.contains(document.activeElement)))
+        document.activeElement.blur();
+      hideLater();
+    }
+    const listen = (target, type, callback, options = {}) =>
+      target.addEventListener(type, callback, { ...options, signal: listeners.signal });
+    listen(
+      root,
+      'pointerdown',
+      (event) => {
+        interactions.add(event.pointerId);
+        clearTimeout(hideTimer);
+      },
+      { capture: true },
+    );
+    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'])
+      listen(
+        document,
+        type,
+        (event) => {
+          if (!interactions.delete(event.pointerId)) return;
+          hideLater();
+        },
+        { capture: true },
+      );
+    listen(root, 'pointermove', (event) => {
+      if (event.target.closest('.window-head,.reference-toolbar,.window-resize')) hideLater();
+    });
+    listen(root, 'focusin', (event) => {
+      if (event.target.matches(':focus-visible')) showControls(true);
+    });
+    listen(root, 'focusout', () => queueMicrotask(hideLater));
+    listen(viewport, 'keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        event.stopPropagation();
+        showControls(true);
+      }
+    });
+    listen(
+      document,
+      'pointerdown',
+      (event) => {
+        if (!root.contains(event.target) && !interactions.size) showControls(false);
+      },
+      { capture: true },
+    );
+    listen(q('.window-collapse'), 'click', () => showControls(true));
     q('.reference-new').onclick = open;
     q('.reference-fit').onclick = fit;
     q('.reference-import').onclick = () => q('.reference-file').click();
@@ -170,6 +259,7 @@ export function createReferences(host) {
         q('.reference-note').textContent =
           `${image.width} × ${image.height} · ${mebibytes(image.width * image.height * 4)} · 仅此会话`;
         root.dataset.image = file.name;
+        showControls(true);
       } catch (error) {
         if (!closed) {
           q('.reference-note').textContent = error.message || '无法读取参考图片';
@@ -179,6 +269,7 @@ export function createReferences(host) {
         if (url) URL.revokeObjectURL(url);
         if (decoded) decoded.src = '';
         loading = false;
+        hideLater();
         release();
       }
     };
@@ -231,6 +322,7 @@ export function createReferences(host) {
       floating.raise();
       const p = point(event);
       pointers.set(event.pointerId, p);
+      tapEligible = pointers.size === 1;
       viewport.setPointerCapture(event.pointerId);
       clearTimeout(hold);
       startGesture();
@@ -240,6 +332,7 @@ export function createReferences(host) {
           hold = setTimeout(() => {
             if (gesture && !gesture.moved && pointers.size === 1) {
               gesture.pick = true;
+              tapEligible = false;
               sample([...pointers.values()][0]);
             }
           }, 420);
@@ -267,10 +360,11 @@ export function createReferences(host) {
       } else if (!g.pair) {
         if (Math.hypot(p.x - g.a.x, p.y - g.a.y) > 5) {
           g.moved = true;
+          tapEligible = false;
           clearTimeout(hold);
         }
         if (g.pick) sample(p);
-        else {
+        else if (g.moved) {
           panX = g.panX + p.x - g.a.x;
           panY = g.panY + p.y - g.a.y;
         }
@@ -278,11 +372,23 @@ export function createReferences(host) {
       drawJob.request();
     };
     function end(event) {
+      if (!pointers.has(event.pointerId)) return;
+      const p = point(event),
+        tap =
+          event.type === 'pointerup' &&
+          tapEligible &&
+          pointers.size === 1 &&
+          gesture &&
+          !gesture.pair &&
+          !gesture.moved &&
+          Math.hypot(p.x - gesture.a.x, p.y - gesture.a.y) <= 5;
       clearTimeout(hold);
+      tapEligible = false;
       pointers.delete(event.pointerId);
       q('.reference-color').hidden = true;
-      // A finger remaining after a pinch can pan, but must not unexpectedly pick.
+      // A finger remaining after a pinch can pan, but must not trigger a tap or pick.
       startGesture();
+      if (tap) showControls(true);
     }
     viewport.onpointerup = viewport.onpointercancel = viewport.onlostpointercapture = end;
     viewport.ondblclick = fit;
@@ -291,6 +397,7 @@ export function createReferences(host) {
       'wheel',
       (event) => {
         event.preventDefault();
+        hideLater();
         const p = point(event),
           previous = zoom;
         zoom = Math.max(0.25, Math.min(16, zoom * Math.exp(-event.deltaY * 0.002)));
@@ -301,6 +408,7 @@ export function createReferences(host) {
       },
       { passive: false },
     );
+    showControls(false);
     drawJob.request();
     return root;
   }

@@ -15,6 +15,10 @@ async function load(page, project) {
   await expect(page.locator('#project-name')).toHaveText('workspace');
   await page.waitForTimeout(360);
 }
+async function referenceControls(ref) {
+  await ref.locator('.reference-viewport').focus();
+  await ref.locator('.reference-viewport').press('Enter');
+}
 async function snapshot(page, pixels = true) {
   await page.keyboard.press('ControlOrMeta+s');
   await expect(page.locator('#save-status')).toHaveText('已保存在此设备');
@@ -159,6 +163,7 @@ test('multiple reference windows resize and drag independently, import and pick 
   await page.locator('#reference-add').click();
   await settled(page);
   const first = page.locator('.reference-window').first();
+  await referenceControls(first);
   const firstSize = await first.evaluate((el) => ({
     width: el.offsetWidth,
     height: el.offsetHeight,
@@ -166,6 +171,7 @@ test('multiple reference windows resize and drag independently, import and pick 
   await first.locator('.reference-new').click();
   await settled(page);
   const second = page.locator('.reference-window').last();
+  await referenceControls(second);
   const original = await second.boundingBox();
   const head = await second.locator('h2').boundingBox();
   await page.mouse.move(head.x + 30, head.y + 10);
@@ -197,6 +203,7 @@ test('multiple reference windows resize and drag independently, import and pick 
   expect(await snapshot(page)).toEqual(before);
   await second.locator('.window-close').click();
   await expect(page.locator('.reference-window')).toHaveCount(1);
+  await referenceControls(first);
   await first.locator('.window-close').click();
   await expect(page.locator('.reference-window')).toHaveCount(0);
 });
@@ -244,6 +251,7 @@ for (const size of [
     await page.locator('#reference-add').click();
     await settled(page);
     const ref = page.locator('.reference-window');
+    await referenceControls(ref);
     for (const button of ['.reference-import', '.reference-pick', '.window-close', '.resize-right'])
       await expect(ref.locator(button)).toBeInViewport();
     await ref.locator('.resize-right').focus();
@@ -319,6 +327,7 @@ test('reference touch pan, pinch, long-press sampling and cancelled resizing kee
     'background-color',
     'rgb(22, 163, 110)',
   );
+  await referenceControls(ref);
   const handle = await ref.locator('.resize-left').boundingBox();
   await client.send('Input.dispatchTouchEvent', {
     type: 'touchStart',
@@ -340,13 +349,17 @@ test('reference count is bounded and closing releases a slot, including reduced 
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await ready(page);
   await page.locator('#reference-add').click();
-  for (let i = 1; i < 6; i++)
+  for (let i = 1; i < 6; i++) {
+    await referenceControls(page.locator('.reference-window').last());
     await page.locator('.reference-window').last().locator('.reference-new').click();
+  }
+  await referenceControls(page.locator('.reference-window').last());
   await page.locator('.reference-window').last().locator('.reference-new').click();
   await expect(page.locator('.reference-window')).toHaveCount(6);
   await expect(page.locator('#toast')).toContainText('最多同时打开 6');
   await page.locator('.reference-window').last().locator('.window-close').click();
   await expect(page.locator('.reference-window')).toHaveCount(5);
+  await referenceControls(page.locator('.reference-window').last());
   await page.locator('.reference-window').last().locator('.reference-new').click();
   await expect(page.locator('.reference-window')).toHaveCount(6);
   await page.setViewportSize({ width: 390, height: 844 });
