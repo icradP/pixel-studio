@@ -1,10 +1,14 @@
 import { LIMITS } from './limits.js';
 import { clone } from './engine.js';
+import { sceneBytes } from './procedural-model.js';
 
 const projectBytes = (project) =>
   project.frames.reduce(
     (total, frame) => total + frame.cels.reduce((bytes, cel) => bytes + cel.byteLength, 0),
-    project.layers.reduce((total, l) => total + (l.mask?.byteLength || 0), 0),
+    project.layers.reduce(
+      (total, l) => total + (l.mask?.byteLength || 0),
+      sceneBytes(project.procedural),
+    ),
   );
 
 /** Snapshots are owned by history until restored; both stacks share one memory budget. */
@@ -16,6 +20,11 @@ export function createHistory({
     redo = [];
   let bytes = 0;
   const entry = (project) => ({ project, bytes: projectBytes(project) });
+  const sceneEntry = (scene) => ({
+    scene: structuredClone(scene),
+    sceneOnly: true,
+    bytes: sceneBytes(scene),
+  });
   function trim(preferred) {
     const other = preferred === undo ? redo : undo;
     while (undo.length + redo.length > maxEntries || bytes > maxBytes) {
@@ -26,11 +35,11 @@ export function createHistory({
   function move(source, target, current) {
     if (!source.length) return null;
     const previous = source.pop(),
-      next = entry(clone(current));
+      next = previous.sceneOnly ? sceneEntry(current.procedural) : entry(clone(current));
     bytes += next.bytes - previous.bytes;
     target.push(next);
     trim(target);
-    return previous.project;
+    return previous.sceneOnly ? { ...current, procedural: previous.scene } : previous.project;
   }
   return {
     get count() {
@@ -49,6 +58,14 @@ export function createHistory({
       for (const item of redo) bytes -= item.bytes;
       redo.length = 0;
       const item = entry(snapshot);
+      undo.push(item);
+      bytes += item.bytes;
+      trim(undo);
+    },
+    checkpointScene(scene) {
+      for (const item of redo) bytes -= item.bytes;
+      redo.length = 0;
+      const item = sceneEntry(scene);
       undo.push(item);
       bytes += item.bytes;
       trim(undo);

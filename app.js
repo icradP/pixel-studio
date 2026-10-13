@@ -268,6 +268,9 @@ let playbackSpeed = 1,
   onionScope = 'all',
   warmKey = '',
   warmTimer;
+let procedural = null,
+  proceduralLoader = null,
+  artRevision = 0;
 const frameCache = new Map(),
   onionCache = new Map();
 const pixelRenderer = createPixelRenderer(),
@@ -445,7 +448,9 @@ function redo() {
   restoreHistory('redo');
 }
 let changedFrames = null;
-function changed(affected = null) {
+function changed(affected = null, sceneOnly = false) {
+  if (!sceneOnly) artRevision++;
+  else affected = [];
   const previous = id + ':' + dirtyVersion;
   dirtyVersion++;
   changedFrames = affected;
@@ -498,6 +503,60 @@ async function openReference() {
   }
 }
 $('#reference-add').onclick = openReference;
+$('#procedural-open').onclick = async () => {
+  if (stroke) return;
+  try {
+    if (!proceduralLoader)
+      proceduralLoader = import('./procedural-editor.js').then(({ createProceduralEditor }) => {
+        procedural = createProceduralEditor({
+          project: () => project,
+          frame: () => frame,
+          layer: () => layer,
+          selection: () => selection,
+          revision: () => dirtyVersion,
+          artRevision: () => artRevision,
+          scale: () => camera.scale,
+          render,
+          resize,
+          toast,
+          ask: askDialog,
+          download,
+          editProject,
+          undo,
+          redo,
+          history: () => history,
+          enter: () => {
+            stop();
+            selectionUI?.finish(true);
+            chooseTool('pencil');
+            toolWindows.closeAll();
+          },
+          commitScene: (scene) => {
+            const next = { ...project, procedural: scene };
+            validate(next);
+            history.checkpointScene(project.procedural);
+            project = next;
+            changed(null, true);
+          },
+          commitBake: (result) => {
+            checkpoint(project);
+            project = result.project;
+            frame = result.frame;
+            layer = result.layer;
+            selection = null;
+            if (!timelineOpen) toggleTimeline();
+            changed();
+          },
+        });
+        return procedural;
+      });
+    const editor = await proceduralLoader;
+    editor.enter();
+  } catch (e) {
+    proceduralLoader = null;
+    toast(e.message || '动画画室未能打开，请重试');
+  }
+};
 function render() {
   renderScheduler.request();
 }
@@ -537,7 +596,11 @@ function draw() {
   ctx.imageSmoothingEnabled = displayMode !== 'pixel';
   ctx.imageSmoothingQuality = 'high';
   let previewSource;
-  if (stroke || selectionUI?.preview) {
+  if (procedural?.active) {
+    paintBuffer(buffer, procedural.pixels());
+    drawPreview(buffer, true);
+    previewSource = buffer;
+  } else if (stroke || selectionUI?.preview) {
     paintBuffer(buffer, composite(renderProject(), frame));
     drawPreview(buffer, true);
     previewSource = buffer;
@@ -553,9 +616,9 @@ function draw() {
       ':' +
       frame +
       ':' +
-      (stroke || selectionUI?.preview ? ++referenceRevision : ''),
+      (stroke || selectionUI?.preview || procedural?.active ? ++referenceRevision : ''),
   );
-  drawOnions();
+  if (!procedural?.active) drawOnions();
   if (grid && camera.scale >= 5) {
     ctx.strokeStyle = '#111a2b55';
     ctx.lineWidth = 1 / camera.scale;
@@ -573,7 +636,8 @@ function draw() {
   ctx.strokeStyle = '#82919c44';
   ctx.lineWidth = 1 / camera.scale;
   ctx.strokeRect(0, 0, project.w, project.h);
-  drawSelection();
+  if (procedural?.active) procedural.draw(ctx, camera.scale);
+  else drawSelection();
   ctx.restore();
   $('#zoom-label').textContent = Math.round(camera.scale * 100) + '%';
 }
@@ -732,6 +796,7 @@ function toolsBuild() {
   renderPins();
 }
 function refresh() {
+  procedural?.sync();
   if (toolWindows.has('brush')) brushController?.sync();
   if (toolWindows.has('expand')) expansionController?.sync();
   if (toolWindows.has('color')) colorController?.syncExternal();
@@ -846,6 +911,7 @@ function highlightFrames() {
     });
 }
 function stop() {
+  procedural?.pause();
   playing = false;
   cancelAnimationFrame(playTimer);
   $('#play').innerHTML = svg('play');
@@ -989,6 +1055,7 @@ $('#pencil-only').onclick = () => {
 };
 $('#dismiss-hint').onclick = () => ($('#welcome-hint').hidden = true);
 function toggleTimeline() {
+  if (procedural?.active) return procedural.leave();
   timelineOpen = !timelineOpen;
   document.body.classList.toggle('timeline-closed', !timelineOpen);
   $('#timeline').inert = !timelineOpen;
@@ -1019,6 +1086,7 @@ function contextToken() {
 }
 function chooseTool(next) {
   if (stroke) finishStroke(true);
+  if (procedural?.active) procedural.leave();
   if (selectionUI?.transforming) selectionUI.finish(true);
   tool = next;
   if (['pencil', 'eraser', 'line', 'rect', 'ellipse'].includes(next)) {
@@ -1181,6 +1249,22 @@ let penActive = false,
   gestureCamera = null;
 function beginStroke(e) {
   if (stroke || $('dialog[open]')) return;
+  if (procedural?.active && e.button === 1) {
+    procedural.pause();
+    stroke = {
+      pan: true,
+      start: { x: e.clientX, y: e.clientY },
+      camera: { ...camera },
+      id: e.pointerId,
+      type: e.pointerType,
+    };
+    return;
+  }
+  if (procedural?.active) {
+    stroke = { proceduralAction: true, id: e.pointerId, type: e.pointerType };
+    procedural.begin(e, positionFloat(e));
+    return;
+  }
   if (
     (project.layers[layer].group || layerLocked(project, layer)) &&
     !['hand', 'pick', 'select', 'wand', 'lasso', 'ellipse-select'].includes(tool)
@@ -1296,6 +1380,10 @@ function beginStroke(e) {
 }
 function moveStroke(e) {
   if (!stroke || stroke.id !== e.pointerId) return;
+  if (stroke.proceduralAction) {
+    procedural.move(e, positionFloat(e));
+    return;
+  }
   if (stroke.selectionAction) {
     selectionUI.move(e, positionFloat(e));
     return;
@@ -1369,6 +1457,10 @@ function finishStroke(cancel = false) {
   if (!stroke) return;
   const current = stroke;
   stroke = null;
+  if (current.proceduralAction) {
+    procedural.end(cancel);
+    return;
+  }
   $('#held-color').hidden = true;
   if (current.selectionAction) {
     selectionUI.end(cancel);
@@ -2292,7 +2384,7 @@ function settingsPanel() {
     <section class="setting-group"><h3>画室</h3>
       <button id="settings-export" class="panel-wide">分享与导出 <span>项目 · 图片 · 动画 ›</span></button><button id="settings-plugins" class="panel-wide">插件工作台 <span>5 个扩展 · ›</span></button>
       <button id="install-help" class="panel-wide">添加到主屏幕 <span>全屏使用 · ›</span></button>
-      <button id="check-update" class="panel-wide">检查更新 <span>v0.12.2</span></button>
+      <button id="check-update" class="panel-wide">检查更新 <span>v0.13.0</span></button>
     </section>`;
   document
     .querySelectorAll('.mirror-controls [data-mirror]')
@@ -2342,7 +2434,7 @@ function settingsPanel() {
     if (r) {
       await r.update();
       toast('已检查更新；如有新版本，顶部会显示更新提示');
-    } else toast('当前版本 v0.12.2');
+    } else toast('当前版本 v0.13.0');
   };
 }
 function download(data, ext, type) {
@@ -2456,6 +2548,7 @@ async function loadProject(p, key = crypto.randomUUID()) {
   const wasInert = document.body.inert;
   document.body.inert = true;
   try {
+    procedural?.leave();
     selectionUI?.finish(false);
     pluginWindow?.close();
     stop();
@@ -2488,6 +2581,7 @@ async function loadProject(p, key = crypto.randomUUID()) {
 }
 async function gallery() {
   if (stroke) return;
+  procedural?.leave();
   selectionUI?.finish(true);
   pluginWindow?.close();
   stop();
@@ -2633,6 +2727,7 @@ document.addEventListener('keydown', (e) => {
   )
     return;
   if (e.target.closest('button') && ['Space', 'Enter'].includes(e.code)) return;
+  if (procedural?.key(e)) return;
   const key = e.key.toLowerCase();
   if ((e.ctrlKey || e.metaKey) && key === 'z') {
     e.preventDefault();
