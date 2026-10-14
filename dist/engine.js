@@ -1,3 +1,5 @@
+import { cloneCel, validateCel, storageBytes } from './cel-storage.js';
+import { encodeProject, decodeProject } from './project-codec.js';
 import { renderComposite } from './layer-effects.js';
 import { LIMITS } from './limits.js';
 import { validateScene } from './procedural-model.js';
@@ -26,7 +28,7 @@ export function clone(p) {
     ...(p.procedural ? { procedural: structuredClone(p.procedural) } : {}),
     ...(p.tags ? { tags: p.tags.map((t) => ({ ...t })) } : {}),
     layers: p.layers.map(cloneLayer),
-    frames: p.frames.map((f) => ({ ...f, cels: f.cels.map((c) => new Uint8ClampedArray(c)) })),
+    frames: p.frames.map((f) => ({ ...f, cels: f.cels.map(cloneCel) })),
   };
 }
 export function validate(p) {
@@ -46,7 +48,7 @@ export function validate(p) {
     p.layers.length > LIMITS.layers ||
     p.frames.length < 1 ||
     p.frames.length > LIMITS.frames ||
-    p.w * p.h * p.layers.length * p.frames.length > MAX_PIXELS
+    (p.storage !== 'packed' && p.w * p.h * p.layers.length * p.frames.length > MAX_PIXELS)
   )
     throw Error('项目尺寸或图层、帧数量超出限制（最大 1024 × 1024，总计 800 万像素）。');
   if (typeof p.name !== 'string' || p.name.length > 160) throw Error('项目名称无效');
@@ -130,34 +132,17 @@ export function validate(p) {
     )
       throw Error('动画数据无效');
     f.cels.forEach((c) => {
-      if (c.length !== p.w * p.h * 4) throw Error('像素数据不完整');
+      validateCel(c, p.w * p.h * 4);
     });
   });
+  if (storageBytes(p) > MAX_PIXELS * 4) throw Error('项目实际像素存储超过 32 MB 上限');
   validateScene(p.procedural, p);
   return p;
 }
-function encodeBytes(c) {
-  let s = '';
-  for (let i = 0; i < c.length; i += 8192) s += String.fromCharCode(...c.subarray(i, i + 8192));
-  return btoa(s);
-}
-export function serialize(p) {
-  return JSON.stringify({
-    ...p,
-    layers: p.layers.map((l) => ({ ...l, ...(l.mask ? { mask: encodeBytes(l.mask) } : {}) })),
-    frames: p.frames.map((f) => ({
-      ...f,
-      cels: f.cels.map((c) => {
-        let s = '';
-        for (let i = 0; i < c.length; i += 8192)
-          s += String.fromCharCode(...c.subarray(i, i + 8192));
-        return btoa(s);
-      }),
-    })),
-  });
-}
+export const serialize = encodeProject;
 export function deserialize(s) {
   const p = JSON.parse(s);
+  if (p.version === 2) return validate(decodeProject(p));
   if (!p.frames || !Array.isArray(p.frames)) throw Error('不是像素画室项目');
   if (!Array.isArray(p.layers) || p.layers.length > LIMITS.layers) throw Error('图层数据无效');
   p.layers = p.layers.map((l) => {
@@ -190,7 +175,7 @@ export function rgba(hex) {
     parseInt(hex.slice(1, 3), 16),
     parseInt(hex.slice(3, 5), 16),
     parseInt(hex.slice(5, 7), 16),
-    255,
+    hex.length === 9 ? parseInt(hex.slice(7, 9), 16) : 255,
   ];
 }
 export function line(x0, y0, x1, y1, visit) {

@@ -1,15 +1,9 @@
+import { storageBytes } from './cel-storage.js';
 import { LIMITS } from './limits.js';
 import { clone } from './engine.js';
 import { sceneBytes } from './procedural-model.js';
 
-const projectBytes = (project) =>
-  project.frames.reduce(
-    (total, frame) => total + frame.cels.reduce((bytes, cel) => bytes + cel.byteLength, 0),
-    project.layers.reduce(
-      (total, l) => total + (l.mask?.byteLength || 0),
-      sceneBytes(project.procedural),
-    ),
-  );
+const projectBytes = (project) => storageBytes(project) + sceneBytes(project.procedural);
 
 /** Snapshots are owned by history until restored; both stacks share one memory budget. */
 export function createHistory({

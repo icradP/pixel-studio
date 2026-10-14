@@ -1,3 +1,5 @@
+import { readCel } from './cel-storage.js';
+import { quadMatrix, drawPerspectiveGrid } from './perspective.js';
 import { floatingPanel, closeIcon } from './floating.js';
 import { animateSurface } from './motion.js';
 import { rectangleMask, maskBounds } from './plugin-core.js';
@@ -33,7 +35,7 @@ export function createSelectionController(host) {
   bar.setAttribute('aria-label', '选区操作');
   bar.setAttribute('role', 'dialog');
   bar.hidden = true;
-  bar.innerHTML = `<div id="selection-tools" class="segment" role="group" aria-label="选区方式"><button data-select-tool="wand">自动</button><button data-select-tool="lasso">手绘</button><button data-select-tool="select">矩形</button><button data-select-tool="ellipse-select">椭圆</button></div><div id="selection-compose"><div id="selection-mode" class="segment" role="group" aria-label="选区组合"><button data-select-mode="replace">新选区</button><button data-select-mode="add">＋ 添加</button><button data-select-mode="subtract">− 移除</button></div><div class="selection-history"><button id="selection-undo" aria-label="撤销选区操作" title="撤销选区操作">↶</button><button id="selection-redo" aria-label="重做选区操作" title="重做选区操作">↷</button></div></div><div id="wand-options"><label class="wand-threshold" for="wand-tolerance"><span>选区阈值</span><output id="wand-tolerance-value" for="wand-tolerance">20%</output><input id="wand-tolerance" aria-label="选区阈值" type="range" min="0" max="100" value="20"></label><button id="wand-settings-toggle" aria-expanded="false" aria-controls="wand-settings">取样与显示</button></div><div id="wand-settings" hidden><label class="switch">仅相邻区域<input id="wand-contiguous" type="checkbox" checked></label><label class="switch">参考所有可见图层<input id="wand-merged" type="checkbox"></label><label class="wand-threshold" for="selection-opacity"><span>选区外遮罩</span><output id="selection-opacity-value" for="selection-opacity">45%</output><input id="selection-opacity" aria-label="选区外遮罩" type="range" min="10" max="80" value="45"></label><p>关闭「仅相邻区域」可选择画布上所有同色像素；默认只取样当前图层。</p></div><p id="selection-instruction"></p><div id="selection-actions" class="selection-row"><button id="selection-transform">移动与变换</button><button id="selection-fill">填充</button><button id="selection-invert">反选</button><button id="selection-copy">拷贝变换</button><button id="selection-store">存储</button><button id="selection-load">加载</button><button id="selection-clear">清除</button></div><div id="transform-options"><div class="selection-row"><label>X<input id="transform-x" type="number" min="-1024" max="1024"></label><label>Y<input id="transform-y" type="number" min="-1024" max="1024"></label><label>宽<input id="transform-width" type="number" min="1" max="1024"></label><label>高<input id="transform-height" type="number" min="1" max="1024"></label><label>角度<input id="transform-angle" type="number" min="-360" max="360"></label><label class="selection-check"><input id="transform-uniform" type="checkbox" checked>等比</label><label class="selection-check"><input id="transform-snap" type="checkbox">15° 吸附</label></div><div class="selection-row"><button id="transform-copy" aria-pressed="false">复制变换</button><button id="transform-flip-x">水平翻转</button><button id="transform-flip-y">垂直翻转</button><button id="transform-cancel">取消变换</button><button id="transform-apply" class="primary">应用变换</button><span class="selection-hint">拖选区移动 · 拖角点缩放 · 拖圆柄旋转</span></div></div>`;
+  bar.innerHTML = `<div id="selection-tools" class="segment" role="group" aria-label="选区方式"><button data-select-tool="wand">自动</button><button data-select-tool="lasso">手绘</button><button data-select-tool="select">矩形</button><button data-select-tool="ellipse-select">椭圆</button></div><div id="selection-compose"><div id="selection-mode" class="segment" role="group" aria-label="选区组合"><button data-select-mode="replace">新选区</button><button data-select-mode="add">＋ 添加</button><button data-select-mode="subtract">− 移除</button></div><div class="selection-history"><button id="selection-undo" aria-label="撤销选区操作" title="撤销选区操作">↶</button><button id="selection-redo" aria-label="重做选区操作" title="重做选区操作">↷</button></div></div><div id="wand-options"><label class="wand-threshold" for="wand-tolerance"><span>选区阈值</span><output id="wand-tolerance-value" for="wand-tolerance">20%</output><input id="wand-tolerance" aria-label="选区阈值" type="range" min="0" max="100" value="20"></label><button id="wand-settings-toggle" aria-expanded="false" aria-controls="wand-settings">取样与显示</button></div><div id="wand-settings" hidden><label class="switch">仅相邻区域<input id="wand-contiguous" type="checkbox" checked></label><label class="switch">参考所有可见图层<input id="wand-merged" type="checkbox"></label><label class="wand-threshold" for="selection-opacity"><span>选区外遮罩</span><output id="selection-opacity-value" for="selection-opacity">45%</output><input id="selection-opacity" aria-label="选区外遮罩" type="range" min="10" max="80" value="45"></label><p>关闭「仅相邻区域」可选择画布上所有同色像素；默认只取样当前图层。</p></div><p id="selection-instruction"></p><div id="selection-actions" class="selection-row"><button id="selection-transform">移动与变换</button><button id="selection-fill">填充</button><button id="selection-outline">描边</button><button id="selection-invert">反选</button><button id="selection-copy">拷贝变换</button><button id="selection-store">存储</button><button id="selection-load">加载</button><button id="selection-clear">清除</button></div><div id="transform-options"><div class="selection-row"><label class="selection-check"><input id="transform-perspective" type="checkbox">透视变形</label><label>网格<input id="transform-grid" type="number" min="1" max="16" value="4"></label><span class="selection-hint">透视模式下拖动四角，拖动内部平移</span></div><div class="selection-row"><label>X<input id="transform-x" type="number" min="-1024" max="1024"></label><label>Y<input id="transform-y" type="number" min="-1024" max="1024"></label><label>宽<input id="transform-width" type="number" min="1" max="1024"></label><label>高<input id="transform-height" type="number" min="1" max="1024"></label><label>角度<input id="transform-angle" type="number" min="-360" max="360"></label><label class="selection-check"><input id="transform-uniform" type="checkbox" checked>等比</label><label class="selection-check"><input id="transform-snap" type="checkbox">15° 吸附</label></div><div class="selection-row"><button id="transform-copy" aria-pressed="false">复制变换</button><button id="transform-flip-x">水平翻转</button><button id="transform-flip-y">垂直翻转</button><button id="transform-cancel">取消变换</button><button id="transform-apply" class="primary">应用变换</button><span class="selection-hint">拖选区移动 · 拖角点缩放 · 拖圆柄旋转</span></div></div>`;
   const contents = bar.innerHTML;
   bar.innerHTML =
     '<header class="selection-head"><strong id="selection-caption">选区工具</strong><span id="selection-count">未选择</span><button id="selection-done" class="primary">完成</button><button id="selection-dock" aria-label="自动排列选区工具" title="自动排列">⊞</button><button id="selection-collapse" aria-label="收起或展开选区工具" aria-expanded="true">−</button><button id="selection-dismiss" aria-label="隐藏选区工具">×</button></header><div class="selection-body">' +
@@ -220,6 +222,9 @@ export function createSelectionController(host) {
     q('#transform-height').value = Math.round(t.height);
     q('#transform-angle').value = Math.round((t.angle * 180) / Math.PI);
     q('#transform-copy').setAttribute('aria-pressed', t.copy);
+    q('#transform-perspective').checked = !!t.quad;
+    for (const key of ['x', 'y', 'width', 'height', 'angle'])
+      q('#transform-' + key).disabled = !!t.quad;
   }
   function update() {
     const nextContext = snapshot().context;
@@ -329,7 +334,7 @@ export function createSelectionController(host) {
     }
     edit = {
       context: s.context,
-      base: new Uint8ClampedArray(p.frames[s.frame].cels[s.layer]),
+      base: new Uint8ClampedArray(readCel(p.frames[s.frame].cels[s.layer])),
       mask: new Uint8Array(mask),
       t,
       original: { ...t },
@@ -358,10 +363,10 @@ export function createSelectionController(host) {
         distance = (v) => Math.hypot(v.x - p.x, v.y - p.y) * scale;
       let kind = 'move',
         corner = -1;
-      if (distance(handles.rotation) < 19) kind = 'rotate';
+      if (!t.quad && distance(handles.rotation) < 19) kind = 'rotate';
       else {
         corner = handles.corners.findIndex((v) => distance(v) < 17);
-        if (corner >= 0) kind = 'scale';
+        if (corner >= 0) kind = t.quad ? 'perspective' : 'scale';
         else {
           const dx = p.x - t.cx,
             dy = p.y - t.cy,
@@ -375,7 +380,7 @@ export function createSelectionController(host) {
         kind,
         corner,
         start: p,
-        t: { ...t },
+        t: structuredClone(t),
         modified: edit.modified,
         anchor: corner >= 0 ? handles.corners[(corner + 2) % 4] : null,
       };
@@ -506,6 +511,28 @@ export function createSelectionController(host) {
         cy: g.anchor.y + ox * s + oy * c,
       };
     }
+    if (g.t.quad && ['move', 'perspective'].includes(g.kind)) {
+      const next = structuredClone(g.t),
+        dx = p.x - g.start.x,
+        dy = p.y - g.start.y;
+      if (g.kind === 'perspective') {
+        next.quad[g.corner].x += dx;
+        next.quad[g.corner].y += dy;
+      } else {
+        for (const point of next.quad) {
+          point.x += dx;
+          point.y += dy;
+        }
+        next.cx += dx;
+        next.cy += dy;
+      }
+      try {
+        quadMatrix(next.quad);
+        edit.t = next;
+      } catch {
+        return;
+      }
+    }
     edit.modified = true;
     preview();
   }
@@ -545,11 +572,20 @@ export function createSelectionController(host) {
     ctx.closePath();
     ctx.stroke();
     ctx.setLineDash([]);
+    if (t.quad) {
+      ctx.globalAlpha = 0.55;
+      drawPerspectiveGrid(
+        ctx,
+        t.quad,
+        Math.max(1, Math.min(16, Number(q('#transform-grid').value) || 4)),
+      );
+      ctx.globalAlpha = 1;
+    }
     ctx.beginPath();
     ctx.moveTo(h.top.x, h.top.y);
-    ctx.lineTo(h.rotation.x, h.rotation.y);
+    if (!t.quad) ctx.lineTo(h.rotation.x, h.rotation.y);
     ctx.stroke();
-    for (const p of [...h.corners, h.rotation]) {
+    for (const p of t.quad ? h.corners : [...h.corners, h.rotation]) {
       ctx.beginPath();
       ctx.arc(p.x, p.y, 6 / scale, 0, Math.PI * 2);
       ctx.fillStyle = '#f4f9ff';
@@ -584,6 +620,7 @@ export function createSelectionController(host) {
     changeMask(null);
   };
   q('#selection-transform').onclick = start;
+  q('#selection-outline').onclick = () => host.outline?.();
   q('#transform-cancel').onclick = () => finish(false);
   q('#transform-apply').onclick = () => finish(true);
   q('#wand-settings-toggle').onclick = () => {
@@ -595,7 +632,7 @@ export function createSelectionController(host) {
     if (!lastWand) return;
     const s = snapshot(),
       p = s.project;
-    const pixels = sampleMerged ? composite(p, s.frame) : p.frames[s.frame].cels[s.layer];
+    const pixels = sampleMerged ? composite(p, s.frame) : readCel(p.frames[s.frame].cels[s.layer]);
     lastWand.sample = createWandSampler(pixels, p.w, p.h, lastWand.p.x, lastWand.p.y, {
       contiguous,
     });
@@ -639,6 +676,14 @@ export function createSelectionController(host) {
     q('#selection-opacity-value').textContent = event.target.value + '%';
     host.render();
   };
+  q('#transform-perspective').onchange = (e) => {
+    if (!edit) return;
+    if (e.target.checked) edit.t.quad = transformHandles(edit.t).corners;
+    else delete edit.t.quad;
+    fields();
+    preview();
+  };
+  q('#transform-grid').oninput = () => host.render();
   q('#transform-uniform').onchange = (e) => (uniform = e.target.checked);
   q('#transform-snap').onchange = (e) => (snapAngle = e.target.checked);
   for (const axis of ['x', 'y', 'width', 'height', 'angle'])
@@ -688,7 +733,7 @@ export function createSelectionController(host) {
   q('#selection-fill').onclick = () => {
     if (!hasMask()) return;
     const s = snapshot(),
-      pixels = new Uint8ClampedArray(s.project.frames[s.frame].cels[s.layer]),
+      pixels = new Uint8ClampedArray(readCel(s.project.frames[s.frame].cels[s.layer])),
       mask = host.selection();
     for (let i = 0; i < mask.length; i++) if (mask[i]) pixels.set(rgba(host.color()), i * 4);
     host.commit(pixels, mask);

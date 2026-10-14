@@ -1,3 +1,4 @@
+import { readCel } from './cel-storage.js';
 import { LIMITS } from './limits.js';
 import { importKind } from './file-import.js';
 import { blank, clone, composite, deserialize } from './engine.js';
@@ -430,7 +431,7 @@ export function openPlugins(host, initialPlugin = null) {
         else {
           const result = clone(p);
           result.frames[state.frame].cels[state.layer] = moveSelected(
-            p.frames[state.frame].cels[state.layer],
+            readCel(p.frames[state.frame].cels[state.layer]),
             p.w,
             p.h,
             state.selection,
@@ -483,14 +484,14 @@ export function openPlugins(host, initialPlugin = null) {
         for (let f = 0; f < p.frames.length; f++) {
           if (!v.allFrames && f !== state.frame) continue;
           cels[f] = shadeNormals(
-            p.frames[f].cels[layer],
-            normal === -2 ? normalAsset : normal < 0 ? null : p.frames[f].cels[normal],
+            readCel(p.frames[f].cels[layer]),
+            normal === -2 ? normalAsset : normal < 0 ? null : readCel(p.frames[f].cels[normal]),
             {
               ...v,
               ambient: v.ambient / 100,
               diffuseStrength: v.diffuseStrength / 100,
               specular: v.specular / 100,
-              specularMap: specular < 0 ? null : p.frames[f].cels[specular],
+              specularMap: specular < 0 ? null : readCel(p.frames[f].cels[specular]),
             },
           );
         }

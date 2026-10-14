@@ -1,6 +1,6 @@
 // Versioned, pixel-free animation metadata. Source references survive layer/frame reordering.
 export const SCENE_LIMITS = Object.freeze({
-  objects: 16,
+  objects: 32,
   nodes: 64,
   keys: 128,
   clips: 64,
@@ -119,6 +119,38 @@ export function validateScene(scene, project) {
     const ids = items.filter((i) => i.id !== undefined).map((i) => i.id);
     if (ids.some((id) => !identifier(id)) || new Set(ids).size !== ids.length) fail();
   }
+  if (scene.lights !== undefined) {
+    if (!list(scene.lights, 8)) fail();
+    const ids = new Set();
+    for (const l of scene.lights) {
+      if (
+        !l ||
+        !identifier(l.id) ||
+        ids.has(l.id) ||
+        typeof l.name !== 'string' ||
+        l.name.length > 80 ||
+        typeof l.enabled !== 'boolean' ||
+        !point(l) ||
+        !finite(l.radius, 1, 2048) ||
+        !finite(l.intensity, 0, 4) ||
+        !/^#[0-9a-f]{6}$/i.test(l.color) ||
+        !/^#[0-9a-f]{6}$/i.test(l.colorTo || l.color) ||
+        !finite(l.start, 0, 60) ||
+        !finite(l.end, l.start + 0.001, 60) ||
+        !finite(l.pulse ?? 0, 0, 1) ||
+        !finite(l.frequency ?? 1, 0, 20) ||
+        !finite(l.phase ?? 0, -100, 100) ||
+        (l.colorCycle !== undefined && typeof l.colorCycle !== 'boolean') ||
+        !curve(l.keys || [], 60, 0, 4) ||
+        (l.path !== undefined &&
+          (!list(l.path, 64) ||
+            !l.path.length ||
+            l.path.some((n) => !point(n) || !point(n.in) || !point(n.out))))
+      )
+        fail();
+      ids.add(l.id);
+    }
+  }
   const ids = new Set();
   for (const o of scene.objects) {
     if (
@@ -151,6 +183,17 @@ export function validateScene(scene, project) {
     )
       fail();
     ids.add(o.id);
+    if (o.appearance !== undefined) {
+      const a = o.appearance;
+      if (
+        !a ||
+        !finite(a.start, 0, 60) ||
+        !finite(a.end, a.start + 0.001, 60) ||
+        !finite(a.fadeIn, 0, a.end - a.start) ||
+        !finite(a.fadeOut, 0, a.end - a.start)
+      )
+        fail();
+    }
     const r = o.source.region;
     if (r != null) {
       if (
@@ -188,7 +231,19 @@ export function validateScene(scene, project) {
       if (
         !identifier(c.id) ||
         clipIds.has(c.id) ||
-        !['rotate', 'stretch', 'squash', 'fade', 'shake'].includes(c.type) ||
+        ![
+          'rotate',
+          'stretch',
+          'squash',
+          'fade',
+          'shake',
+          'fadeIn',
+          'fadeOut',
+          'hide',
+          'blink',
+          'rainbow',
+          'tint',
+        ].includes(c.type) ||
         !finite(c.start, 0, 60) ||
         !finite(c.end, c.start + 0.001, 60) ||
         typeof c.enabled !== 'boolean' ||
@@ -204,6 +259,9 @@ export function validateScene(scene, project) {
         !finite(c.params.frequency, 0, 50)
       )
         fail();
+      if (c.params.color !== undefined && !/^#[0-9a-f]{6}$/i.test(c.params.color)) fail();
+      if (c.params.colorTo !== undefined && !/^#[0-9a-f]{6}$/i.test(c.params.colorTo)) fail();
+      if (c.params.cycles !== undefined && !finite(c.params.cycles, 0, 20)) fail();
       clipIds.add(c.id);
     }
     assertSourceAvailable(scene, o.source, o.id);
@@ -243,6 +301,15 @@ export function moveSceneCanvas(scene, w, h, left, top) {
           mask[(Math.floor(p / r.w) + top) * w + (p % r.w) + left] = 1;
       o.source.region = encodeRegion(mask, w, h);
     }
+  }
+  for (const light of next.lights || []) {
+    light.x += left;
+    light.y += top;
+    for (const n of light.path || [])
+      for (const p of [n, n.in, n.out]) {
+        p.x += left;
+        p.y += top;
+      }
   }
   return next;
 }

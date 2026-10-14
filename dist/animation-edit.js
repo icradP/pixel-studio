@@ -1,3 +1,4 @@
+import { cloneCel, emptyCel } from './cel-storage.js';
 import { LIMITS } from './limits.js';
 import { MAX_PIXELS } from './engine.js';
 import { shiftTags } from './animation.js';
@@ -7,7 +8,11 @@ function range(p, a, b) {
     throw Error('请选择有效的帧区间');
 }
 function capacity(p, l, f) {
-  if (l > LIMITS.layers || f > LIMITS.frames || p.w * p.h * l * f > MAX_PIXELS)
+  if (
+    l > LIMITS.layers ||
+    f > LIMITS.frames ||
+    (p.storage !== 'packed' && p.w * p.h * l * f > MAX_PIXELS)
+  )
     throw Error('达到项目容量上限（32 图层、240 帧、800 万像素）');
 }
 export function editFrames(p, action, a, b = a, destination = 0) {
@@ -18,7 +23,11 @@ export function editFrames(p, action, a, b = a, destination = 0) {
     const copies = p.frames.slice(a, b + 1).map((f) => ({
       duration: f.duration,
       cels: f.cels.map((c) =>
-        action === 'blank' ? new Uint8ClampedArray(c.length) : new Uint8ClampedArray(c),
+        action === 'blank'
+          ? p.storage === 'packed'
+            ? emptyCel(c.length)
+            : new Uint8ClampedArray(c.length)
+          : cloneCel(c),
       ),
     }));
     for (let i = 0; i < count; i++) shiftTags(p, b + 1 + i);
@@ -119,7 +128,13 @@ export function addLayer(p, current, group = false) {
       : {}),
   };
   p.layers.splice(at, 0, layer);
-  p.frames.forEach((f) => f.cels.splice(at, 0, new Uint8ClampedArray(p.w * p.h * 4)));
+  p.frames.forEach((f) =>
+    f.cels.splice(
+      at,
+      0,
+      p.storage === 'packed' ? emptyCel(p.w * p.h * 4) : new Uint8ClampedArray(p.w * p.h * 4),
+    ),
+  );
   if (parent >= 0) p.layers[parent].collapsed = false;
   return at;
 }
@@ -136,7 +151,13 @@ export function groupLayer(p, i) {
     isolated: !p.layers.some((l) => l.group && l.isolated === false),
     ...(level ? { level } : {}),
   });
-  p.frames.forEach((f) => f.cels.splice(i, 0, new Uint8ClampedArray(p.w * p.h * 4)));
+  p.frames.forEach((f) =>
+    f.cels.splice(
+      i,
+      0,
+      p.storage === 'packed' ? emptyCel(p.w * p.h * 4) : new Uint8ClampedArray(p.w * p.h * 4),
+    ),
+  );
   return i;
 }
 export function ungroupLayer(p, i) {
@@ -209,7 +230,7 @@ export function copyCels(p, layer, a, b) {
   return {
     w: p.w,
     h: p.h,
-    cels: p.frames.slice(a, b + 1).map((f) => new Uint8ClampedArray(f.cels[layer])),
+    cels: p.frames.slice(a, b + 1).map((f) => cloneCel(f.cels[layer])),
   };
 }
 export function pasteCels(p, layer, a, clipboard) {
@@ -217,7 +238,7 @@ export function pasteCels(p, layer, a, clipboard) {
     throw Error('请先复制同尺寸画布的单元');
   if (p.layers[layer].group || layerLocked(p, layer)) throw Error('请选择未锁定的像素图层');
   if (a + clipboard.cels.length > p.frames.length) throw Error('目标帧不足，请先添加空白帧');
-  clipboard.cels.forEach((c, i) => (p.frames[a + i].cels[layer] = new Uint8ClampedArray(c)));
+  clipboard.cels.forEach((c, i) => (p.frames[a + i].cels[layer] = cloneCel(c)));
 }
 
 // Accumulate elapsed time rather than chaining frame-duration timeouts.

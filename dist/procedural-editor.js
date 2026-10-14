@@ -1,3 +1,5 @@
+import { EFFECT_NAMES, EFFECT_DEFAULTS } from './scene-effects.js';
+import { batchEffectsPanel, lightsPanel } from './scene-fx-panel.js';
 import {
   createScene,
   ensureSourceIds,
@@ -28,18 +30,14 @@ const esc = (s) =>
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
   );
 const COLORS = ['#85cfff', '#f5b27d', '#b7de8a', '#e9a5e5', '#92ded1', '#e4cf84'];
-const effectNames = {
-  rotate: '旋转',
-  stretch: '拉伸',
-  squash: '触地压扁',
-  fade: '透明度',
-  shake: '震动',
-};
+const effectNames = EFFECT_NAMES;
 const round = (n) => Math.round(n * 1000) / 1000;
 export function createProceduralEditor(host) {
+  const effectTargets = new Set();
   let active = false,
     time = 0,
     selected = null,
+    selectedLight = null,
     mode = 'select',
     solo = null,
     draft = null,
@@ -77,7 +75,7 @@ export function createProceduralEditor(host) {
     .map(([id, name]) => `<button data-scene-mode="${id}" aria-pressed="false">${name}</button>`)
     .join(
       '',
-    )}</div><button id="scene-curve">进度曲线</button><button id="scene-effects">区间效果</button><button id="scene-settings" aria-label="场景设置">设置</button><button id="scene-bake" class="primary">烘焙</button><button id="scene-exit">返回绘画</button></header><div class="scene-transport"><button id="scene-undo" aria-label="撤销动画编辑">↶</button><button id="scene-redo" aria-label="重做动画编辑">↷</button><button id="scene-prev" aria-label="程序动画上一帧">‹</button><button id="scene-play" aria-label="播放程序动画">▶</button><button id="scene-next" aria-label="程序动画下一帧">›</button><output id="scene-time">0.000 s</output><input id="scene-scrub" type="range" aria-label="场景播放头" min="0" max="2" step="0.083333" value="0"><button id="scene-loop" aria-pressed="true">循环</button><span id="scene-range-label"></span></div><div id="scene-warning" role="status" hidden></div><div id="scene-tracks"></div><div id="scene-empty">从图层或选区创建对象，再在画布上画出运动路径。</div>`;
+    )}</div><button id="scene-curve">进度曲线</button><button id="scene-effects">区间效果</button><button id="scene-batch-effects">批量特效</button><button id="scene-lights">光源</button><button id="scene-settings" aria-label="场景设置">设置</button><button id="scene-bake" class="primary">烘焙</button><button id="scene-exit">返回绘画</button></header><div class="scene-transport"><button id="scene-undo" aria-label="撤销动画编辑">↶</button><button id="scene-redo" aria-label="重做动画编辑">↷</button><button id="scene-prev" aria-label="程序动画上一帧">‹</button><button id="scene-play" aria-label="播放程序动画">▶</button><button id="scene-next" aria-label="程序动画下一帧">›</button><output id="scene-time">0.000 s</output><input id="scene-scrub" type="range" aria-label="场景播放头" min="0" max="2" step="0.083333" value="0"><button id="scene-loop" aria-pressed="true">循环</button><span id="scene-range-label"></span></div><div id="scene-warning" role="status" hidden></div><div id="scene-tracks"></div><div id="scene-empty">从图层或选区创建对象，再在画布上画出运动路径。</div>`;
   document.body.append(root);
   const q = (s) => root.querySelector(s),
     scene = () => draft || host.project().procedural,
@@ -470,6 +468,8 @@ export function createProceduralEditor(host) {
       o = object(),
       kind = panelState.kind;
     inspector.querySelector('h2').textContent = {
+      lights: '场景光源',
+      batch: '对象特效 · 单个或批量',
       create: '创建动画对象',
       object: o?.name || '对象',
       curve: '运动进度',
@@ -479,7 +479,17 @@ export function createProceduralEditor(host) {
     }[kind];
     const $ = (selector) => body.querySelector(selector),
       on = (selector, fn) => ($(selector).onclick = fn);
-    if (kind === 'create') {
+    if (kind === 'lights') {
+      lightsPanel(body, {
+        scene,
+        project: host.project,
+        edit,
+        selectedLight,
+        setSelectedLight: (id) => (selectedLight = id),
+      });
+    } else if (kind === 'batch') {
+      batchEffectsPanel(body, { scene, selected, edit, toast: host.toast, targets: effectTargets });
+    } else if (kind === 'create') {
       const p = host.project();
       body.innerHTML = `<label>对象名称<input id="scene-object-name" maxlength="80" value="对象 ${s.objects.length + 1}"></label><p class="help">来源：场景底图帧。勾选一个或多个图层；图层组会包含组内内容。</p><div class="scene-source-list">${p.layers.map((l, i) => `<label><input type="checkbox" data-source-layer="${i}" ${i === host.layer() ? 'checked' : ''}><span style="padding-left:${(l.level || 0) * 10}px">${l.group ? '▸ ' : ''}${esc(l.name)}</span></label>`).join('')}</div><label class="switch">仅使用当前选区<input id="scene-use-selection" type="checkbox" ${sourceSelection ? 'checked' : 'disabled'}></label><p class="help">创建引用，不改动源像素。对象内部保留来源效果；场景把对象按轨道顺序叠加在剩余底图上。重复来源会被阻止。</p><button id="scene-create" class="primary panel-wide">创建对象</button>`;
       on('#scene-create', () =>
@@ -704,9 +714,14 @@ export function createProceduralEditor(host) {
               end,
               enabled: true,
               intensity: 1,
-              curve: structuredClone(type === 'fade' ? CURVES.linear : CURVES.pulse),
+              curve: structuredClone(
+                ['fade', 'fadeIn', 'fadeOut', 'rainbow', 'tint'].includes(type)
+                  ? CURVES.linear
+                  : CURVES.pulse,
+              ),
               blend: ['rotate', 'shake'].includes(type) ? 'add' : 'multiply',
               params: {
+                ...EFFECT_DEFAULTS,
                 angle: 180,
                 x: type === 'squash' ? 1.5 : 1.2,
                 y: type === 'squash' ? 0.55 : 1.5,
@@ -734,6 +749,15 @@ export function createProceduralEditor(host) {
         ['y', '纵向比例', 0.05, 4, 0.05],
       ],
       fade: [['opacity', '目标不透明度', 0, 1, 0.05]],
+      fadeIn: [],
+      fadeOut: [],
+      hide: [],
+      blink: [
+        ['frequency', '闪烁频率 / Hz', 0.1, 20, 0.1],
+        ['opacity', '暗态不透明度', 0, 1, 0.05],
+      ],
+      rainbow: [['cycles', '彩虹循环次数', 0.1, 20, 0.1]],
+      tint: [],
       shake: [
         ['amplitude', '振幅 / 像素', 0, 256, 0.5],
         ['frequency', '频率 / Hz', 0, 50, 0.5],
@@ -747,6 +771,19 @@ export function createProceduralEditor(host) {
         '',
       )}</div><div id="effect-curve"></div><div class="scene-two"><button id="effect-copy">复制区间</button><button id="effect-remove" class="danger">删除区间</button></div>`;
     const change = (fn) => editObject((v) => fn(v.clips.find((c) => c.id === clip.id)));
+    if (clip.type === 'tint') {
+      const colors = document.createElement('div');
+      colors.className = 'scene-two';
+      colors.innerHTML = `<label>起始颜色<input data-effect-color="color" type="color" value="${clip.params.color || '#ff83c9'}"></label><label>结束颜色<input data-effect-color="colorTo" type="color" value="${clip.params.colorTo || '#76deff'}"></label>`;
+      fields.prepend(colors);
+      colors
+        .querySelectorAll('input')
+        .forEach(
+          (input) =>
+            (input.onchange = (e) =>
+              change((c) => (c.params[input.dataset.effectColor] = e.target.value))),
+        );
+    }
     $('#effect-intensity').oninput = (e) => {
       const next = structuredClone(host.project().procedural);
       next.objects.find((v) => v.id === o.id).clips.find((c) => c.id === clip.id).intensity =
@@ -796,16 +833,22 @@ export function createProceduralEditor(host) {
   function bakePanel(body) {
     const s = scene(),
       $ = (sel) => body.querySelector(sel);
-    body.innerHTML = `<p class="help">将区间 ${s.range[0].toFixed(2)}–${s.range[1].toFixed(2)} s 转为逐帧像素。路径和控制点不会进入结果。</p><label>输出方式<select id="scene-bake-mode"><option value="objects">分对象 · 独立图层组</option><option value="composite">完整合成帧</option></select></label><label>保存位置<select id="scene-bake-policy"><option value="new">新建烘焙组和帧 · 保留所有精修</option><option value="replace" ${s.bakes.length ? '' : 'disabled'}>替换上次生成内容 · 保留额外精修层</option></select></label><p id="scene-bake-capacity" class="help"></p><button id="scene-bake-confirm" class="primary panel-wide">生成像素帧</button><p class="help">默认保留源绘画、旧烘焙和人工修改。新结果进入现有时间轴，可继续用画笔精修。要保留可编辑动作，请保存 .pixel 工程。</p><div class="scene-two"><button id="scene-export-gif" ${s.bakes.length ? '' : 'disabled'}>上次烘焙 · GIF</button><button id="scene-export-sheet" ${s.bakes.length ? '' : 'disabled'}>上次烘焙 · 精灵图</button></div><p class="help">这些导出仅包含上次烘焙的帧，并包含该帧上的人工精修。传统文件保留像素结果，动作数据保存在 .pixel 中。</p>`;
+    body.innerHTML = `<p class="help">将区间 ${s.range[0].toFixed(2)}–${s.range[1].toFixed(2)} s 转为逐帧像素。路径和控制点不会进入结果。</p><label>烘焙范围<select id="scene-bake-scope"><option value="all">整个场景</option><option value="selected">仅勾选的对象 · 透明背景</option></select></label><div id="scene-bake-targets" class="scene-source-list" hidden>${s.objects.map((o) => `<label><input data-bake-target="${esc(o.id)}" type="checkbox" ${effectTargets.has(o.id) || o.id === selected ? 'checked' : ''}>${esc(o.name)}</label>`).join('')}</div><label>输出方式<select id="scene-bake-mode"><option value="composite">合并为一个像素图层</option><option value="objects">分对象 · 独立图层组</option></select></label><label>保存位置<select id="scene-bake-policy"><option value="new">新建烘焙组和帧 · 保留所有精修</option><option value="replace" ${s.bakes.length ? '' : 'disabled'}>替换上次生成内容 · 保留额外精修层</option></select></label><p id="scene-bake-capacity" class="help"></p><button id="scene-bake-confirm" class="primary panel-wide">生成像素帧</button><p class="help">默认保留源绘画、旧烘焙和人工修改。新结果进入现有时间轴，可继续用画笔精修。要保留可编辑动作，请保存 .pixel 工程。</p><div class="scene-two"><button id="scene-export-gif" ${s.bakes.length ? '' : 'disabled'}>上次烘焙 · GIF</button><button id="scene-export-sheet" ${s.bakes.length ? '' : 'disabled'}>上次烘焙 · 精灵图</button></div><p class="help">这些导出仅包含上次烘焙的帧，并包含该帧上的人工精修。传统文件保留像素结果，动作数据保存在 .pixel 中。</p>`;
     const options = () => ({
       mode: $('#scene-bake-mode').value,
+      objectIds:
+        $('#scene-bake-scope').value === 'selected'
+          ? [...body.querySelectorAll('[data-bake-target]:checked')].map(
+              (el) => el.dataset.bakeTarget,
+            )
+          : null,
       replace: $('#scene-bake-policy').value === 'replace',
     });
     const estimate = () => {
       try {
         const plan = bakePlan(host.project(), s, options());
         $('#scene-bake-capacity').textContent =
-          `${plan.samples.length} 个采样帧 · 完成后 ${plan.layers} 层 / ${plan.frames} 帧 · 像素占用 ${mebibytes(plan.bytes)}`;
+          `${plan.samples.length} 个采样帧 · 完成后 ${plan.layers} 层 / ${plan.frames} 帧 · ${plan.compact ? `使用无损帧差压缩 · 当前存储 ${mebibytes(plan.bytes)}，生成时检查 32 MB 预算；逐帧解码缓存 ≤16 MiB` : `像素占用 ${mebibytes(plan.bytes)}`}`;
         $('#scene-bake-confirm').disabled = false;
       } catch (e) {
         $('#scene-bake-capacity').textContent = e.message;
@@ -813,6 +856,11 @@ export function createProceduralEditor(host) {
       }
     };
     $('#scene-bake-mode').onchange = $('#scene-bake-policy').onchange = estimate;
+    $('#scene-bake-scope').onchange = () => {
+      $('#scene-bake-targets').hidden = $('#scene-bake-scope').value !== 'selected';
+      estimate();
+    };
+    body.querySelectorAll('[data-bake-target]').forEach((el) => (el.onchange = estimate));
     estimate();
     $('#scene-bake-confirm').onclick = async () => {
       const opts = options();
@@ -1122,7 +1170,7 @@ export function createProceduralEditor(host) {
     host.render();
   }
   function draw(ctx, scale) {
-    if (!active) return;
+    if (!active || playing) return;
     const c = prepare();
     if (!c) return;
     const o = object();
@@ -1270,6 +1318,8 @@ export function createProceduralEditor(host) {
   q('#scene-settings').onclick = () => togglePanel('scene');
   q('#scene-curve').onclick = () => togglePanel('curve');
   q('#scene-effects').onclick = () => togglePanel('effects');
+  q('#scene-batch-effects').onclick = () => togglePanel('batch');
+  q('#scene-lights').onclick = () => togglePanel('lights');
   q('#scene-bake').onclick = () => togglePanel('bake');
   q('#scene-undo').onclick = () => {
     timelineCancel?.();

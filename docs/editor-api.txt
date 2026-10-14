@@ -1,4 +1,4 @@
-Pixel Studio Editor API v1 / WebMCP · v0.14.0
+Pixel Studio Editor API v1 / WebMCP · v0.15.0
 
 入口
 ----
@@ -7,6 +7,7 @@ Pixel Studio Editor API v1 / WebMCP · v0.14.0
 没有额外服务器或 API key。调用方需要具备 WebMCP 站点工具能力。
 偏好设置 → AI 协作可关闭工具或取消当前操作；关闭立即取消运行并注销工具。
 ChatGPT/Codex 的工具可发现性取决于客户端、模型与账号开放情况。
+当前共 15 个工具；文字、描边、透视变换、批量特效及动态光源均可调用。
 
 架构
 ----
@@ -29,9 +30,10 @@ webmcp.js 仅适配注册与调用；不能执行调用方提供的任意 JavaSc
    over 使用 source-over；透明度锁定保留原 alpha，锁定图层/父级不能绘制。
    选区默认 current；若要忽略选区，明确传 selection="all"。
 4. 图层遮罩、混合模式等合成效果由现有引擎处理；draw 修改的是指定 cel 的原始像素。
-   它不模拟笔压/笔刷插件，也不编辑图层遮罩。当前 API 不提供骨骼、IK 或网格变形。
+   它不模拟笔压/笔刷插件，也不编辑图层遮罩。当前 API 不提供骨骼、IK 或任意网格蒙皮。
 5. 单次请求最多 2,000,000 个 JSON 字符；draw 最多 256 条命令、400 万像素访问，
-   单个索引像素块最多 262144 像素。工程的 1024 边长/32 层/240 帧/800 万像素限制仍生效。
+   单个索引像素块最多 262144 像素。工程的 1024 边长/32 层/240 帧限制仍生效；普通项目限 800 万像素，
+   紧凑烘焙项目按实际像素存储 32,000,000 字节检查，另有 16 MiB 解码缓存。
 6. 操作先校验，在独立工作副本中处理，成功后提交一次撤销；失败不留下部分内容。
    正在绘画、拖动、输入或显示模态对话框时返回 EDITOR_BUSY。读取工程始终可用。
    烘焙逐帧让出主线程，期间用户修改/切换作品会使提交返回 STALE_REVISION。
@@ -68,11 +70,18 @@ pixel_preview          frames 或 times，最多 16 个；maxEdge(16..512)控制
                        返回 content 中的 PNG、revision、采样点、尺寸；同时显示预览浮窗。
                        多格总内容像素最多约 26 万，标签单独计入；最近邻缩放。
                        如果客户端仅显示 JSON，用页面预览浮窗截图检查真实画面。
-pixel_bake_animation   mode(objects/composite),replace=false,dryRun=false。
-                       dryRun 只返回容量计划；提交结果 frameRange 是新动画的闭区间。
+pixel_add_text         中日英点阵文字，新建像素图层；支持方向、位置、变换与四角透视。
+pixel_add_outline      选区或图层像素描边，新建独立图层。
+pixel_transform        当前选区、区域或图层边界的像素变换。详细字段见下文。
+pixel_bake_animation   mode(objects/composite，默认composite),objectIds,replace=false,dryRun=false。
+                       objectIds 省略代表整个场景；传入对象ID数组只烘焙所选，背景透明。
+                       composite 合并为一个像素图层；objects 按对象分层。
+                       dryRun 返回容量计划，compact 表示启用压缩，logicalBytes 为展开体积；
+                       bytesAreEstimate=true 时 bytes 为现有存储估计，生成时检查实际预算。
+                       提交结果 frameRange 是新动画闭区间，源绘画与程序动画保留。
 pixel_history          direction(undo/redo)。与手动撤销共用，选区编辑期间需先退出选区工具。
 pixel_save             当前设备 IndexedDB 保存完成后返回成功或错误。
-pixel_export           format(pixel/png/gif/sheet),from,to。PNG 默认当前帧；GIF/sheet 默认全部帧。
+pixel_export           format(pixel/png/gif/sheet),from,to；pixel 为 gzip 压缩 v2 工程。PNG 默认当前帧；GIF/sheet 默认全部帧。
                        烘焙后应指定 frameRange，排除源绘画帧。GIF 使用现有 216 色近似量化。
 
 原生浏览器调用示例（不是额外全局变量或测试后门）
@@ -106,3 +115,52 @@ AI 客户端通过自身的站点工具能力发现与调用，无需执行上�
 https://webmachinelearning.github.io/webmcp/
 https://github.com/webmachinelearning/webmcp/blob/main/implementation-status.md
 https://learn.chatgpt.com/docs/webmcp
+
+
+v0.15.0 新接口与特效字段
+----------------------
+pixel_add_text：frame,text,x,y,color 必填。size(4..128，默认16)、direction
+(horizontal/vertical)、spacing(0..32)、scaleX/scaleY、rotation(度)、flipX/flipY。
+可提供 quad 四个凸四边形角点 TL,TR,BR,BL，覆盖位置/缩放/旋转，像素最近邻采样。
+文字保存为普通像素图层，最多512字符；字库首次使用时本地按需解压。
+
+pixel_add_outline：frame,layer,color 必填；width(1..32)、position
+(inside/outside/center)、selection(current/all)。对不透明像素添加独立描边图层。
+current 使用活动选区；若无选区则使用整个图层。拒绝已锁定来源图层。
+
+pixel_transform：frame,layer 必填；selection(current/all) 或 region 矩形。
+未创建选区时使用图层不透明像素边界。x/y 为未旋转的目标左上角；width/height、
+rotation(度)、flipX/flipY、copy(保留源像素)，或 quad 四角透视。
+整批一次撤销；拒绝锁定或透明度锁定的图层，画布之外的像素被裁剪，图层蒙版不变。
+
+pixel_edit_animation：objects 数组支持一次修改多个对象，一次撤销恢复整批。
+objects[].appearance = {start,end,fadeIn,fadeOut}，均以秒计。
+仅在 [start,end) 内显示，淡入淡出按该窗口计算；没有该字段时默认全程显示。
+clips 新增 fadeIn、fadeOut、hide、blink、rainbow、tint。
+params.frequency 是闪烁频率，params.opacity 是闪烁暗相透明度，
+params.color/colorTo 是六位十六进制渐变颜色，params.cycles 是彩虹循环次数。
+fadeIn 开始前隐藏、结束后显示；fadeOut 结束后保持隐藏。
+rainbow/tint 在区间外恢复原色，intensity 控制染色混合强度。
+
+lights 数组整体替换场景光源，[] 可清空。最多8盏，必填字段：
+id,name,enabled,x,y,radius(1..2048),intensity(0..4),color,start,end。
+可选 colorTo,colorCycle,pulse(0..1),frequency(0..20 Hz),phase(弧度),
+path(同对象贝塞尔路径),keys(以秒为时间的亮度倍率关键帧)。
+光照使用径向衰减与滤色合成，仅改变RGB，保留透明度。扩展画布会同步移动灯的位置。
+动画预览和烘焙使用相同的颜色/可见性/光照求值。对象数量上限现在为32。
+
+例：先读取作品及对象ID，再一次设置爱心淡入漂浮淡出、彩虹变色和电脑灯光：
+{
+  "expectedRevision": "上一次读取返回的revision",
+  "objects": [{
+    "action": "update", "id": "读取获得的爱心对象ID",
+    "appearance": {"start":0.2,"end":3.8,"fadeIn":0.3,"fadeOut":0.6},
+    "motion": {"start":0.2,"end":3.8},
+    "path": [{"x":90,"y":100},{"x":88,"y":60}],
+    "clips": [{"type":"rainbow","start":0.2,"end":3.8,"intensity":0.4,
+      "params":{"cycles":1}}]
+  }],
+  "lights": [{"id":"monitor","name":"电脑光","enabled":true,
+    "x":64,"y":110,"radius":90,"intensity":0.5,"color":"#8ebdff",
+    "start":0,"end":4,"pulse":0.6,"frequency":1.5}]
+}

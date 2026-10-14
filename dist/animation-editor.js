@@ -1,3 +1,4 @@
+import { emptyCel } from './cel-storage.js';
 import {
   editFrames,
   setDurations,
@@ -140,7 +141,7 @@ export function createAnimationEditor(host) {
           )
             return;
           edit((p) => {
-            for (let i = a; i <= b; i++) p.frames[i].cels[layer].fill(0);
+            for (let i = a; i <= b; i++) p.frames[i].cels[layer] = emptyCel(p.w * p.h * 4);
           });
         } catch (e) {
           host.toast(e.message);

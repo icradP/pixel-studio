@@ -1,4 +1,9 @@
-import { blank, clone, validate } from './engine.js';
+import { readCel, compactProject } from './cel-storage.js';
+import { loadPixelFont, renderPixelText } from './pixel-type.js';
+import { rectangleQuad, warpPixels } from './perspective.js';
+import { outlinePixels } from './pixel-outline.js';
+import { transformPixels } from './editor-transform.js';
+import { blank, clone, validate, rgba } from './engine.js';
 import { LIMITS, projectUsage } from './limits.js';
 import {
   addLayer,
@@ -121,6 +126,13 @@ function animationEdits(p, args, activeFrame) {
     if (args.settings.duration !== undefined && !args.settings.range)
       scene.range = [0, scene.duration];
   }
+  if (args.lights !== undefined)
+    scene.lights = args.lights.map((light) => ({
+      ...structuredClone(light),
+      ...(light.path && {
+        path: light.path.map((n) => ({ ...pathNode(n.x, n.y), ...structuredClone(n) })),
+      }),
+    }));
   for (const op of args.objects || []) {
     if (op.action === 'delete') fields(op, ['action', 'id']);
     if (op.action === 'create' && op.id !== undefined) throw Error('新对象 ID 由画室分配');
@@ -153,7 +165,7 @@ function animationEdits(p, args, activeFrame) {
       }
       if (op.sourceLayers || op.region) throw Error('更新对象来源请删除后重新创建');
     }
-    for (const k of ['name', 'origin', 'progress', 'visible', 'enabled', 'locked'])
+    for (const k of ['name', 'origin', 'progress', 'visible', 'enabled', 'locked', 'appearance'])
       if (op[k] !== undefined) o[k] = structuredClone(op[k]);
     if (op.origin && op.action === 'create' && !op.path)
       o.path = [pathNode(op.origin.x, op.origin.y)];
@@ -266,7 +278,8 @@ export function createEditorAPI(host) {
       } else if (name === 'pixel_bake_animation') {
         if (!start.project.procedural) throw Error('作品还没有程序化动画');
         const options = {
-          mode: args.mode || 'objects',
+          mode: args.mode || 'composite',
+          objectIds: args.objectIds || null,
           replace: args.replace || false,
           signal: controller.signal,
         };
@@ -275,6 +288,9 @@ export function createEditorAPI(host) {
           layers: plan.layers,
           frames: plan.frames,
           bytes: plan.bytes,
+          logicalBytes: plan.logicalBytes,
+          compact: plan.compact,
+          bytesAreEstimate: plan.compact,
           samples: plan.samples.length,
         };
         if (args.dryRun) return { revision: start.revision, dryRun: true, ...details };
@@ -316,12 +332,69 @@ export function createEditorAPI(host) {
             if (!details.pixelWrites)
               return { revision: start.revision, changed: false, ...details };
             focus = { frame: args.frame, layer: args.layer };
+          } else if (name === 'pixel_transform') {
+            transformPixels(next, args, start);
+            focus = { frame: args.frame, layer: args.layer };
+          } else if (name === 'pixel_add_text' || name === 'pixel_add_outline') {
+            if (!next.frames[args.frame]) throw Error('帧索引无效');
+            let pixels, label;
+            if (name === 'pixel_add_text') {
+              const font = host.pixelFont || (await loadPixelFont());
+              check();
+              const text = renderPixelText(font, args.text, {
+                direction: args.direction,
+                spacing: args.spacing,
+                color: rgba(args.color),
+              });
+              const quad =
+                args.quad ||
+                rectangleQuad(
+                  args.x,
+                  args.y,
+                  ((text.width * (args.size || 16)) / 16) * (args.scaleX || 1),
+                  ((text.height * (args.size || 16)) / 16) * (args.scaleY || 1),
+                  args.rotation || 0,
+                );
+              pixels = warpPixels(text.pixels, text.width, text.height, next.w, next.h, quad, args);
+              label = '文字 · ' + args.text.slice(0, 60);
+            } else {
+              if (
+                !next.layers[args.layer] ||
+                next.layers[args.layer].group ||
+                layerLocked(next, args.layer)
+              )
+                throw Error('请选择未锁定的像素图层');
+              if (
+                start.selection &&
+                args.selection !== 'all' &&
+                (args.frame !== start.frame || args.layer !== start.layer)
+              )
+                throw Error('当前选区只能用于当前帧和图层');
+              pixels = outlinePixels(
+                readCel(next.frames[args.frame].cels[args.layer]),
+                next.w,
+                next.h,
+                {
+                  width: args.width,
+                  position: args.position,
+                  color: rgba(args.color),
+                  mask: args.selection === 'all' ? null : start.selection,
+                },
+              );
+              label = '像素描边';
+            }
+            if (!pixels.some((v, i) => i % 4 === 3 && v)) throw Error('内容位于画布之外或为空');
+            const layer = addLayer(next, -1, false);
+            next.layers[layer].name = label;
+            next.frames[args.frame].cels[layer] = pixels;
+            focus = { frame: args.frame, layer };
           } else if (name === 'pixel_edit_animation') {
             ensureSourceIds(next);
             animationEdits(next, args, start.frame);
           }
         }
         ensureSourceIds(next);
+        if (next.storage === 'packed' && !sceneOnly) next = compactProject(next);
         validate(next);
         references(next);
         check();

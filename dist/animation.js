@@ -1,3 +1,4 @@
+import { celVisible } from './cel-storage.js';
 export function tagSequence(tag, count) {
   const from = tag?.from ?? 0,
     to = tag?.to ?? count - 1,
@@ -174,8 +175,7 @@ export function createTimeline(host) {
           const cell = row.children[i + 1];
           if (!cell) continue;
           const layer = p.layers[li];
-          const nonempty =
-            !layer.group && p.frames[i].cels[li].some((v, k) => k % 4 === 3 && v > 0);
+          const nonempty = !layer.group && celVisible(p.frames[i].cels[li]);
           cell.textContent = layer.group ? '' : nonempty ? '●' : '○';
           cell.setAttribute(
             'aria-label',
@@ -297,7 +297,7 @@ export function createTimeline(host) {
         const b = document.createElement('button');
         b.className = 'ase-cel' + (i === host.frame() ? ' current-frame' : '');
         b.dataset.frame = i;
-        const nonempty = !layer.group && f.cels[li].some((v, k) => k % 4 === 3 && v > 0);
+        const nonempty = !layer.group && celVisible(f.cels[li]);
         b.textContent = layer.group ? '' : nonempty ? '●' : '○';
         b.setAttribute(
           'aria-label',

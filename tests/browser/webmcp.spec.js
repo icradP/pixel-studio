@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { buffer } from 'node:stream/consumers';
+import { decodeProjectFile } from '../../dist/project-file.js';
 
 test.use({
   launchOptions: {
@@ -20,7 +21,7 @@ async function load(page) {
             .length,
       ),
     )
-    .toBe(12);
+    .toBe(15);
 }
 async function invoke(page, name, args = {}) {
   return page.evaluate(
@@ -46,12 +47,16 @@ async function saved(page) {
   expect((await call(page, 'save')).saved).toBe(true);
   return page.evaluate(async () => {
     const { openProjectStore } = await import('/project-store.js');
+    const { readCel } = await import('/cel-storage.js');
     const store = await openProjectStore();
     try {
       const record = await store.get(localStorage.getItem('pixel-studio-current'));
       return {
         ...record.project,
-        frames: record.project.frames.map((f) => ({ ...f, cels: f.cels.map((c) => [...c]) })),
+        frames: record.project.frames.map((f) => ({
+          ...f,
+          cels: f.cels.map((c) => [...readCel(c)]),
+        })),
       };
     } finally {
       store.close();
@@ -60,9 +65,9 @@ async function saved(page) {
 }
 const shape = { type: 'rect', x: 4, y: 6, width: 6, height: 5, color: '#44bb88' };
 async function animate(page, duration = 1, fps = 8) {
-  expect((await call(page, 'draw', { frame: 0, layer: 0, commands: [shape] })).isError).not.toBe(
-    true,
-  );
+  expect(
+    (await call(page, 'draw', { frame: 0, layer: 0, selection: 'all', commands: [shape] })).isError,
+  ).not.toBe(true);
   const result = await call(page, 'edit_animation', {
     settings: { duration, fps },
     objects: [
@@ -216,7 +221,7 @@ test('site tools can be disabled, persist off, and register again without duplic
 }) => {
   await load(page);
   await page.locator('[data-panel=settings]').click();
-  await expect(page.locator('#ai-tools-status')).toContainText('12 个工具');
+  await expect(page.locator('#ai-tools-status')).toContainText('15 个工具');
   await page.locator('#ai-tools-enabled').uncheck();
   await expect
     .poll(() => page.evaluate(async () => (await document.modelContext.getTools()).length))
@@ -228,7 +233,7 @@ test('site tools can be disabled, persist off, and register again without duplic
   await page.locator('#ai-tools-enabled').check();
   await expect
     .poll(() => page.evaluate(async () => (await document.modelContext.getTools()).length))
-    .toBe(12);
+    .toBe(15);
 });
 test('unsupported browsers keep normal editing and do not load the command engine', async ({
   page,
@@ -260,4 +265,51 @@ test('unsupported browsers keep normal editing and do not load the command engin
   await expect(page.locator('.layer')).toHaveCount(4);
   expect(errors).toEqual([]);
   expect(requests.length).toBeGreaterThan(0);
+});
+
+test('canvas text creates a new layer; WebMCP selected compact bake exports and reloads gzip', async ({
+  page,
+}) => {
+  await load(page);
+  await create(page, 256, 128);
+  await page.locator('[data-panel=tools]').click();
+  await page.locator('#tools-text').click();
+  await page.locator('#text-content').fill('中日英 ♥');
+  await expect(page.locator('#artwork-apply')).toBeEnabled();
+  await expect(page.locator('#artwork-preview')).toBeHidden();
+  const view = await page.locator('#view').boundingBox();
+  const a = { x: view.x + view.width * 0.6, y: view.y + view.height * 0.4 };
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  await page.mouse.move(a.x + 20, a.y + 30, { steps: 5 });
+  await page.mouse.up();
+  await expect(page.locator('#text-x')).not.toHaveValue('26');
+  await page.locator('#artwork-apply').click();
+  await expect(page.locator('#artwork-panel')).toHaveCount(0);
+  expect((await state(page)).layers).toHaveLength(2);
+  await page.locator('[data-tool=pencil]').first().click();
+  await animate(page, 4, 30);
+  const doc = await state(page);
+  const baked = await call(page, 'bake_animation', { objectIds: [doc.animation.objects[0].id] });
+  expect(baked.isError, baked.message).not.toBe(true);
+  expect(baked.compact).toBe(true);
+  expect(baked.frameRange).toEqual([1, 120]);
+  const downloadPromise = page.waitForEvent('download');
+  const exported = await call(page, 'export', { format: 'pixel' });
+  expect(exported.isError, exported.message).not.toBe(true);
+  const bytes = await buffer(await (await downloadPromise).createReadStream());
+  expect([...bytes.subarray(0, 2)]).toEqual([31, 139]);
+  const decoded = await decodeProjectFile(new Blob([bytes]));
+  expect(decoded.storage).toBe('packed');
+  expect(decoded.frames).toHaveLength(121);
+  expect(decoded.procedural.bakes.at(-1).mode).toBe('composite');
+  await page
+    .locator('#file-input')
+    .setInputFiles({ name: '紧凑往返.pixel', mimeType: 'application/octet-stream', buffer: bytes });
+  await expect(page.locator('#project-name')).toHaveText('紧凑往返');
+  expect((await call(page, 'save')).saved).toBe(true);
+  expect((await state(page)).frames).toHaveLength(121);
+  await page.reload();
+  await expect(page.locator('body')).not.toHaveAttribute('inert', '');
+  expect((await state(page)).frames).toHaveLength(121);
 });

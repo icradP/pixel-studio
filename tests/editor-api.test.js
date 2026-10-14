@@ -5,6 +5,9 @@ import { createHistory } from '../dist/history.js';
 import { createEditorAPI } from '../dist/editor-api.js';
 import { createWebMCP, modelContext } from '../dist/webmcp.js';
 import { compileScene, evaluateScene } from '../dist/procedural.js';
+import fs from 'node:fs';
+import { gunzipSync } from 'node:zlib';
+import { parseFont } from '../dist/pixel-type.js';
 
 function fixture(project = blank(16, 16)) {
   const history = createHistory();
@@ -58,6 +61,131 @@ const draw = (commands = [dot()]) => ({ frame: 0, layer: 0, commands });
 const pixel = (p, x, y, frame = 0, layer = 0) => [
   ...p.frames[frame].cels[layer].slice((y * p.w + x) * 4, (y * p.w + x) * 4 + 4),
 ];
+
+test('WebMCP text, outline and perspective commands preserve source pixels and share undo', async () => {
+  const f = fixture(blank(128, 128));
+  f.host.pixelFont = parseFont(
+    gunzipSync(
+      fs.readFileSync(new URL('../dist/fonts/unifont-18.0.01.hex.gz', import.meta.url)),
+    ).toString(),
+  );
+  const source = new Uint8ClampedArray(f.s.project.frames[0].cels[0]);
+  await f.call('add_text', {
+    frame: 0,
+    text: '你好 あ Hello',
+    x: 4,
+    y: 6,
+    size: 16,
+    color: '#aaffee',
+  });
+  assert.equal(f.s.project.layers.length, 2);
+  assert.deepEqual(f.s.project.frames[0].cels[0], source);
+  assert.ok(f.s.project.frames[0].cels[1].some(Boolean));
+  await f.call('add_outline', { frame: 0, layer: 1, color: '#160f33', width: 1, selection: 'all' });
+  assert.equal(f.s.project.layers.length, 3);
+  const before = serialize(f.s.project);
+  await f.call('transform', {
+    frame: 0,
+    layer: 1,
+    selection: 'all',
+    flipX: true,
+    quad: [
+      { x: 4, y: 40 },
+      { x: 110, y: 45 },
+      { x: 100, y: 65 },
+      { x: 10, y: 60 },
+    ],
+  });
+  assert.notEqual(serialize(f.s.project), before);
+  await f.call('history', { direction: 'undo' });
+  assert.equal(serialize(f.s.project), before);
+  const count = f.s.history.count;
+  await assert.rejects(
+    f.call('transform', {
+      frame: 0,
+      layer: 1,
+      quad: [
+        { x: 0, y: 0 },
+        { x: 2, y: 2 },
+        { x: 0, y: 2 },
+        { x: 2, y: 0 },
+      ],
+    }),
+    /交叉/,
+  );
+  assert.equal(f.s.history.count, count);
+  assert.equal(serialize(f.s.project), before);
+});
+test('WebMCP transforms respect active selection, copy and locks', async () => {
+  const f = fixture();
+  await f.call('draw', draw([dot(2, 3), dot(9, 9, '#00ff00')]));
+  f.s.selection = new Uint8Array(256);
+  f.s.selection[3 * 16 + 2] = 1;
+  await f.call('transform', { frame: 0, layer: 0, x: 5, y: 6, copy: true });
+  assert.deepEqual(pixel(f.s.project, 5, 6), pixel(f.s.project, 2, 3));
+  assert.deepEqual(pixel(f.s.project, 9, 9), [0, 255, 0, 255]);
+  f.s.project.layers[0].alphaLock = true;
+  const saved = serialize(f.s.project);
+  await assert.rejects(f.call('transform', { frame: 0, layer: 0, x: 1 }), /解锁/);
+  assert.equal(serialize(f.s.project), saved);
+});
+test('WebMCP batch appearance, color clips and moving light changes are one atomic scene undo', async () => {
+  const f = fixture();
+  await f.call('draw', draw());
+  await f.call('edit_animation', {
+    objects: [{ action: 'create', name: 'heart', sourceLayers: [0] }],
+  });
+  const before = serialize(f.s.project),
+    id = f.s.project.procedural.objects[0].id,
+    count = f.s.history.count;
+  await f.call('edit_animation', {
+    objects: [
+      {
+        action: 'update',
+        id,
+        appearance: { start: 0.1, end: 1.8, fadeIn: 0.2, fadeOut: 0.3 },
+        clips: [{ type: 'rainbow', start: 0, end: 2, params: { cycles: 2 } }],
+      },
+    ],
+    lights: [
+      {
+        id: 'monitor',
+        name: '电脑光',
+        enabled: true,
+        x: 2,
+        y: 3,
+        radius: 9,
+        intensity: 0.6,
+        color: '#aabbff',
+        start: 0,
+        end: 2,
+        frequency: 0,
+        path: [
+          { x: 2, y: 3 },
+          { x: 4, y: 5 },
+        ],
+      },
+    ],
+  });
+  assert.equal(f.s.history.count, count + 1);
+  const s = f.s.project.procedural,
+    c = compileScene(f.s.project, s);
+  assert.deepEqual(s.lights[0].path[0].in, { x: 2, y: 3 });
+  assert.equal(evaluateScene(c, s, 0)[(3 * 16 + 2) * 4 + 3], 0);
+  assert.equal(evaluateScene(c, s, 0.8)[(3 * 16 + 2) * 4 + 3], 255);
+  const updated = serialize(f.s.project);
+  await assert.rejects(
+    f.call('edit_animation', {
+      objects: [{ action: 'update', id, appearance: { start: 2, end: 1, fadeIn: 0, fadeOut: 0 } }],
+    }),
+    /无效/,
+  );
+  assert.equal(serialize(f.s.project), updated);
+  await f.call('history', { direction: 'undo' });
+  assert.equal(serialize(f.s.project), before);
+  await f.call('history', { direction: 'redo' });
+  assert.equal(serialize(f.s.project), updated);
+});
 
 test('API snapshot is detached, bounded, and shares real engine limits', async () => {
   const f = fixture(),
@@ -351,7 +479,7 @@ test('WebMCP registers schemas, calls the core, and disables stale callbacks', a
     states = [],
     adapter = createWebMCP(f.api, c, (s) => states.push(s));
   await adapter.start();
-  assert.equal(c.tools.size, 12);
+  assert.equal(c.tools.size, 15);
   const drawTool = c.tools.get('pixel_draw');
   const d = await c.tools.get('pixel_get_document').execute({});
   await drawTool.execute({ ...draw(), expectedRevision: d.revision });
@@ -362,7 +490,7 @@ test('WebMCP registers schemas, calls the core, and disables stale callbacks', a
   assert.equal(c.tools.size, 0);
   await assert.rejects(drawTool.execute({ ...draw(), expectedRevision: f.s.revision }), /关闭/);
   await adapter.start();
-  assert.equal(c.tools.size, 12);
+  assert.equal(c.tools.size, 15);
   await adapter.stop();
 });
 test('partial registration failure cleans up; unsupported browsers are inert', async () => {
@@ -385,7 +513,7 @@ test('rapid overlapping enable/disable requests serialize registration without s
     c = context(),
     adapter = createWebMCP(f.api, c);
   await Promise.all([adapter.start(), adapter.start(), adapter.stop(), adapter.start()]);
-  assert.equal(c.tools.size, 12);
+  assert.equal(c.tools.size, 15);
   await adapter.stop();
   assert.equal(c.tools.size, 0);
 });
