@@ -834,7 +834,13 @@ export function createProceduralEditor(host) {
     const s = scene(),
       $ = (sel) => body.querySelector(sel);
     body.innerHTML = `<p class="help">将区间 ${s.range[0].toFixed(2)}–${s.range[1].toFixed(2)} s 转为逐帧像素。路径和控制点不会进入结果。</p><label>烘焙范围<select id="scene-bake-scope"><option value="all">整个场景</option><option value="selected">仅勾选的对象 · 透明背景</option></select></label><div id="scene-bake-targets" class="scene-source-list" hidden>${s.objects.map((o) => `<label><input data-bake-target="${esc(o.id)}" type="checkbox" ${effectTargets.has(o.id) || o.id === selected ? 'checked' : ''}>${esc(o.name)}</label>`).join('')}</div><label>输出方式<select id="scene-bake-mode"><option value="composite">合并为一个像素图层</option><option value="objects">分对象 · 独立图层组</option></select></label><label>保存位置<select id="scene-bake-policy"><option value="new">新建烘焙组和帧 · 保留所有精修</option><option value="replace" ${s.bakes.length ? '' : 'disabled'}>替换上次生成内容 · 保留额外精修层</option></select></label><p id="scene-bake-capacity" class="help"></p><button id="scene-bake-confirm" class="primary panel-wide">生成像素帧</button><p class="help">默认保留源绘画、旧烘焙和人工修改。新结果进入现有时间轴，可继续用画笔精修。要保留可编辑动作，请保存 .pixel 工程。</p><div class="scene-two"><button id="scene-export-gif" ${s.bakes.length ? '' : 'disabled'}>上次烘焙 · GIF</button><button id="scene-export-sheet" ${s.bakes.length ? '' : 'disabled'}>上次烘焙 · 精灵图</button></div><p class="help">这些导出仅包含上次烘焙的帧，并包含该帧上的人工精修。传统文件保留像素结果，动作数据保存在 .pixel 中。</p>`;
+    const span = s.range[1] - s.range[0],
+      initialCount = Math.max(1, Math.round(span * s.fps));
+    const sampling = document.createElement('div');
+    sampling.innerHTML = `<div class="scene-two"><label>本次总帧数<input id="scene-bake-frames" type="number" min="1" max="240" step="1" value="${initialCount}"></label><label>本次帧率 / FPS<input id="scene-bake-fps" type="number" min="0.01" max="50" step="any" value="${(initialCount / span).toFixed(3)}"></label></div><p class="help">两项联动，仅改变本次采样。总时长 ${span.toFixed(2)} 秒及源动画速度保持不变；减少帧数可降低占用。</p>`;
+    body.querySelector('#scene-bake-capacity').before(sampling);
     const options = () => ({
+      frameCount: Number($('#scene-bake-frames').value),
       mode: $('#scene-bake-mode').value,
       objectIds:
         $('#scene-bake-scope').value === 'selected'
@@ -854,6 +860,14 @@ export function createProceduralEditor(host) {
         $('#scene-bake-capacity').textContent = e.message;
         $('#scene-bake-confirm').disabled = true;
       }
+    };
+    $('#scene-bake-frames').oninput = () => {
+      $('#scene-bake-fps').value = (Number($('#scene-bake-frames').value) / span).toFixed(3);
+      estimate();
+    };
+    $('#scene-bake-fps').oninput = () => {
+      $('#scene-bake-frames').value = Math.round(Number($('#scene-bake-fps').value) * span);
+      estimate();
     };
     $('#scene-bake-mode').onchange = $('#scene-bake-policy').onchange = estimate;
     $('#scene-bake-scope').onchange = () => {
@@ -920,8 +934,9 @@ export function createProceduralEditor(host) {
     };
     $('#scene-export-gif').onclick = async () => {
       try {
-        const { encodeGif } = await import('./gif.js');
-        host.download(encodeGif(baked()), '-场景.gif', 'image/gif');
+        const { openGifExport } = await import('./gif-export.js');
+        pause();
+        await openGifExport(baked(), host, { suffix: '-场景.gif' });
       } catch (e) {
         host.toast(e.message);
       }

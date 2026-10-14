@@ -85,6 +85,7 @@ export async function preview(p, args, host, check) {
 }
 export async function exportDocument(p, args, host, check) {
   let blob, extension;
+  if (args.gif && args.format !== 'gif') throw Error('GIF 参数仅用于 GIF 导出');
   if (args.format === 'pixel') {
     blob = await encodeProjectFile(p);
     check();
@@ -94,15 +95,16 @@ export async function exportDocument(p, args, host, check) {
       to = args.to ?? (args.format === 'png' ? from : p.frames.length - 1);
     if (!p.frames[from] || !p.frames[to] || to < from || (args.format === 'png' && from !== to))
       throw Error('导出帧范围无效');
-    if (p.w * p.h * (to - from + 1) > LIMITS.exportPixels) throw Error('导出超过 64 MiB 像素预算');
     if (args.format === 'gif') {
-      const { encodeGif } = await import('./gif.js');
+      const { encodeGifAsync } = await import('./gif.js');
       check();
-      blob = new Blob([encodeGif({ ...p, frames: p.frames.slice(from, to + 1) })], {
+      blob = new Blob([await encodeGifAsync(p, { ...args.gif, from, to }, { check })], {
         type: 'image/gif',
       });
       extension = '.gif';
     } else {
+      if (p.w * p.h * (to - from + 1) > LIMITS.exportPixels)
+        throw Error('导出超过 64 MiB 像素预算');
       const count = to - from + 1;
       if (p.w * count > 16384) throw Error('精灵图宽度超过 16384，请减少帧数');
       const output = canvas(p.w * count, p.h),

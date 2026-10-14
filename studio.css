@@ -441,3 +441,34 @@ button.gallery-example {
   width: 100%;
   min-width: 0;
 }
+
+.gif-export-dialog {
+  width: min(460px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+.gif-export-dialog label {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+}
+.gif-export-dialog input {
+  min-width: 0;
+  width: 100%;
+}
+.gif-export-dialog progress {
+  width: 100%;
+}
+#gif-preview {
+  width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  background: #17181c;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+#gif-close {
+  width: 100%;
+  margin-top: 10px;
+}

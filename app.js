@@ -2495,7 +2495,7 @@ function settingsPanel() {
     <section class="setting-group"><h3>画室</h3>
       <button id="settings-export" class="panel-wide">分享与导出 <span>项目 · 图片 · 动画 ›</span></button><button id="settings-plugins" class="panel-wide">插件工作台 <span>5 个扩展 · ›</span></button>
       <button id="install-help" class="panel-wide">添加到主屏幕 <span>全屏使用 · ›</span></button>
-      <button id="check-update" class="panel-wide">检查更新 <span>v0.15.0</span></button>
+      <button id="check-update" class="panel-wide">检查更新 <span>v0.15.1</span></button>
     </section>`;
   editorIntegration.settings(panelContent('settings'));
   document
@@ -2563,14 +2563,14 @@ function download(data, ext, type) {
 }
 async function exportWith(path, action) {
   try {
-    action(await import(path));
+    await action(await import(path));
   } catch (error) {
     toast(error.message || '导出失败，请重试');
   }
 }
 function exportPanel() {
   panelContent('export').innerHTML =
-    `<p class="help">项目备份保留所有像素、图层和动画；导出后可在「文件」中保存或传到其他设备。</p><button id="export-project" class="panel-wide">${svg('export')}画室项目 .pixel</button><button id="export-ase" class="panel-wide">${svg('layers')}Aseprite .aseprite</button><label class="export-scale">PNG 尺寸<select id="png-scale"><option value="1">原始像素 · 1×</option><option value="2">清晰放大 · 2×</option><option value="4">清晰放大 · 4×</option><option value="8">清晰放大 · 8×</option></select></label><button id="export-svg" class="panel-wide">当前帧 · SVG 像素矢量</button><p class="help">SVG 将可见图层合成为矢量像素块，保留透明度，可无损缩放。</p><button id="export-png" class="panel-wide">当前帧 · PNG 透明图片</button><button id="export-sheet" class="panel-wide">全部帧 · PNG 横向精灵图</button><button id="export-gif" class="panel-wide">动画 · GIF</button><button id="export-import" class="panel-wide">导入项目 / Aseprite / 图片转像素</button><p class="help">Aseprite：保留普通图层、图层组、动画标签和帧时长。链接单元展开为独立可编辑像素；支持 19 种混合模式；遮罩与颜色调整会应用到像素，剪贴层合并到对应底层，保持画面效果。需保留可编辑遮罩请同时保存 .pixel；瓦片需先转换。GIF 使用 216 色量化，半透明像素转为透明或不透明。</p>`;
+    `<p class="help">项目备份保留所有像素、图层和动画；导出后可在「文件」中保存或传到其他设备。</p><button id="export-project" class="panel-wide">${svg('export')}画室项目 .pixel</button><button id="export-ase" class="panel-wide">${svg('layers')}Aseprite .aseprite</button><label class="export-scale">PNG 尺寸<select id="png-scale"><option value="1">原始像素 · 1×</option><option value="2">清晰放大 · 2×</option><option value="4">清晰放大 · 4×</option><option value="8">清晰放大 · 8×</option></select></label><button id="export-svg" class="panel-wide">当前帧 · SVG 像素矢量</button><p class="help">SVG 将可见图层合成为矢量像素块，保留透明度，可无损缩放。</p><button id="export-png" class="panel-wide">当前帧 · PNG 透明图片</button><button id="export-sheet" class="panel-wide">全部帧 · PNG 横向精灵图</button><button id="export-gif" class="panel-wide">动画 · GIF</button><button id="export-import" class="panel-wide">导入项目 / Aseprite / 图片转像素</button><p class="help">Aseprite：保留普通图层、图层组、动画标签和帧时长。链接单元展开为独立可编辑像素；支持 19 种混合模式；遮罩与颜色调整会应用到像素，剪贴层合并到对应底层，保持画面效果。需保留可编辑遮罩请同时保存 .pixel；瓦片需先转换。GIF 支持尺寸、帧率与 16–256 色压缩设置，半透明像素转为透明或不透明。</p>`;
   $('#export-project').onclick = async () => {
     try {
       download(await encodeProjectFile(project), '.pixel', 'application/octet-stream');
@@ -2623,7 +2623,10 @@ function exportPanel() {
     c.toBlob((b) => download(b, '-sheet.png'), 'image/png');
   };
   $('#export-gif').onclick = () =>
-    exportWith('./gif.js', (module) => download(module.encodeGif(project), '.gif', 'image/gif'));
+    exportWith('./gif-export.js', (module) => {
+      const tag = animationTimeline.activeTag();
+      return module.openGifExport(project, { download }, tag ? { from: tag.from, to: tag.to } : {});
+    });
   $('#export-import').onclick = () => $('#file-input').click();
 }
 // Persistence is isolated from UI; gallery reads never load all project pixels.
