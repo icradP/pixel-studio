@@ -1,12 +1,5 @@
 import { encodeProjectFile, decodeProjectFile } from './project-file.js';
-import {
-  readCel,
-  editCel,
-  cloneCel,
-  emptyCel,
-  decodeCacheBytes,
-  compactProject,
-} from './cel-storage.js';
+import { readCel, editCel, decodeCacheBytes, compactProject } from './cel-storage.js';
 import { pressureResponse, applyGradient, mixPaintEffect, paintMask } from './paint.js';
 import { BLEND_MODES } from './layer-effects.js';
 import { layerEffects, gradientSettings } from './painting-ui.js';
@@ -38,6 +31,7 @@ import { createAnimationEditor } from './animation-editor.js';
 import { onionPixels } from './onion.js';
 import {
   PlaybackClock,
+  editFrames,
   addLayer,
   groupLayer,
   ungroupLayer,
@@ -49,7 +43,7 @@ import {
   layerLocked,
   visibleLayerOrder,
 } from './animation-edit.js';
-import { createTimeline, shiftTags, layerOrder } from './animation.js';
+import { createTimeline, layerOrder } from './animation.js';
 import { activePalette } from './palettes.js';
 import { colorStudio } from './color-studio.js';
 import { galleryView } from './gallery.js';
@@ -423,13 +417,6 @@ function settingsSave() {
   }
 }
 const history = createHistory();
-function capacity(_layers, frames) {
-  if (frames > LIMITS.frames) {
-    toast('达到项目容量上限，请另存后减少图层或帧');
-    return false;
-  }
-  return true;
-}
 function checkpoint(snapshot = clone(project)) {
   history.checkpoint(snapshot);
 }
@@ -1052,34 +1039,21 @@ document.addEventListener('visibilitychange', () => {
       refresh();
     }),
 );
-$('#duplicate-frame').onclick = () => {
-  if (!capacity(project.layers.length, project.frames.length + 1)) return;
-  stop();
-  checkpoint();
-  shiftTags(project, frame + 1);
-  project.frames.splice(frame + 1, 0, {
-    duration: project.frames[frame].duration,
-    cels: project.frames[frame].cels.map(cloneCel),
-  });
-  frame++;
-  changed();
-};
-$('#add-frame').onclick = () => {
-  if (!capacity(project.layers.length, project.frames.length + 1)) return;
-  stop();
-  checkpoint();
-  shiftTags(project, frame + 1);
-  project.frames.splice(frame + 1, 0, {
-    duration: 120,
-    cels: project.layers.map(() =>
-      project.storage === 'packed'
-        ? emptyCel(project.w * project.h * 4)
-        : new Uint8ClampedArray(project.w * project.h * 4),
-    ),
-  });
-  frame++;
-  changed();
-};
+for (const [id, action] of [
+  ['duplicate-frame', 'duplicate'],
+  ['add-frame', 'blank'],
+]) {
+  $('#' + id).onclick = () => {
+    try {
+      editProject((p) => {
+        frame = editFrames(p, action, frame);
+        if (action === 'blank') p.frames[frame].duration = 120;
+      });
+    } catch (error) {
+      toast(error.message);
+    }
+  };
+}
 $('#onion').onclick = () => {
   onion = !onion;
   render();

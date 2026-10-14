@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { blank, clone, validate, serialize, deserialize, composite } from '../dist/engine.js';
-import { addLayer } from '../dist/animation-edit.js';
+import { addLayer, editFrames } from '../dist/animation-edit.js';
 import {
   compactProject,
   editCel,
@@ -106,4 +106,19 @@ test('clipped compositing does not modify shared source planes or hidden groups'
   const before = serialize(p);
   assert.deepEqual(composite(p, 0), new Uint8ClampedArray([20, 240, 30, 255]));
   assert.equal(serialize(p), before);
+});
+
+test('frame duplication switches to shared compressed storage before the matrix grows', () => {
+  const p = blank(2048, 512);
+  p.frames[0].cels[0].set([7, 8, 9, 255]);
+  for (let i = 0; i < 10; i++) editFrames(p, 'duplicate', 0);
+  assert.equal(p.storage, 'packed');
+  assert.equal(p.frames.length, 11);
+  const source = p.frames[0].cels[0];
+  const at = editFrames(p, 'blank', 0);
+  assert.equal(readCel(p.frames[at].cels[0])[3], 0);
+  assert.deepEqual(readCel(source).slice(0, 4), new Uint8ClampedArray([7, 8, 9, 255]));
+  editCel(p.frames[1], 0)[0] = 99;
+  assert.equal(readCel(source)[0], 7);
+  assert.ok(storageBytes(p) < 5 * 1024 * 1024);
 });

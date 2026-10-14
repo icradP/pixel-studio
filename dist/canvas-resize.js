@@ -45,6 +45,11 @@ export function expandCanvas(project, sides) {
   if (!next.changed) throw Error('请至少扩展一个方向。');
   const compact = project.storage === 'packed' || next.pixels > LIMITS.pixels;
   const expanded = new Map();
+  let allocated = 0;
+  const charge = (bytes) => {
+    allocated += bytes;
+    if (allocated > LIMITS.projectBytes) throw Error('扩展后的实际像素存储超过 256 MiB 预算');
+  };
   const frames = project.frames.map((frame) => ({
     ...frame,
     cels: frame.cels.map((input) => {
@@ -59,6 +64,7 @@ export function expandCanvas(project, sides) {
           ((y + next.top) * next.w + next.left) * 4,
         );
       const output = compact ? packCel(pixels) : pixels;
+      charge(compact ? output.data.byteLength : output.byteLength);
       if (compact) expanded.set(input, output);
       return output;
     }),
@@ -75,6 +81,7 @@ export function expandCanvas(project, sides) {
     layers: project.layers.map((layer) => {
       const nextLayer = cloneLayer(layer);
       if (layer.mask) {
+        charge(next.w * next.h);
         nextLayer.mask = new Uint8ClampedArray(next.w * next.h).fill(255);
         for (let y = 0; y < project.h; y++)
           nextLayer.mask.set(

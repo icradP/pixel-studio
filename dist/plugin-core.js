@@ -368,12 +368,13 @@ export function loopLayers(p, periods, duration = 120) {
     if (count > 240) throw Error('组合循环超过 240 帧，请使用较短的图层周期。');
   }
   ensureCapacity(p, p.layers.length, count);
+  const source = p.w * p.h * p.layers.length * count > MAX_PIXELS ? compactProject(p) : p;
   const out = {
-    ...p,
+    ...source,
     layers: p.layers.map((l) => ({ ...l })),
     frames: Array.from({ length: count }, (_, f) => ({
       duration,
-      cels: p.layers.map((_, l) => cloneCel(p.frames[f % periods[l]].cels[l])),
+      cels: p.layers.map((_, l) => cloneCel(source.frames[f % periods[l]].cels[l])),
     })),
   };
   if (out.tags)
@@ -427,18 +428,18 @@ export function importAnimation(
     throw Error('动画轨迹参数无效');
   const total = Math.max(p.frames.length, start + count);
   ensureCapacity(p, p.layers.length + 1, total);
-  const out = clone(p);
+  const out = clone(p.w * p.h * (p.layers.length + 1) * total > MAX_PIXELS ? compactProject(p) : p);
   while (out.frames.length < total)
     out.frames.push({
       duration,
       cels: p.layers.map(() =>
-        p.storage === 'packed' ? emptyCel(p.w * p.h * 4) : new Uint8ClampedArray(p.w * p.h * 4),
+        out.storage === 'packed' ? emptyCel(p.w * p.h * 4) : new Uint8ClampedArray(p.w * p.h * 4),
       ),
     });
   out.layers.push({ name: '动画 · ' + source.name.slice(0, 120), visible: true, opacity: 255 });
   out.frames.forEach((f) =>
     f.cels.push(
-      p.storage === 'packed' ? emptyCel(p.w * p.h * 4) : new Uint8ClampedArray(p.w * p.h * 4),
+      out.storage === 'packed' ? emptyCel(p.w * p.h * 4) : new Uint8ClampedArray(p.w * p.h * 4),
     ),
   );
   for (let i = 0; i < count; i++) {

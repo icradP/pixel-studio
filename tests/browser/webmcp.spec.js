@@ -351,6 +351,22 @@ test('wide canvas, 81 layers and virtualized frame grid support WebMCP, scrollin
   expect((await state(page)).layers[80].visible).toBe(false);
   await page.locator('#quick-undo').click();
   expect((await state(page)).layers[80].visible).toBe(true);
+  const dragSource = await page
+    .locator('#layer-list [data-drag-key="80"] .layer-select')
+    .boundingBox();
+  const scroller = await page.locator('#window-layers .window-body').boundingBox();
+  await page.mouse.move(dragSource.x + 30, dragSource.y + 30);
+  await page.mouse.down();
+  await page.waitForTimeout(420);
+  await page.mouse.move(dragSource.x + 30, scroller.y + scroller.height - 10, { steps: 8 });
+  await page.waitForTimeout(900);
+  expect(
+    await page.locator('#window-layers .window-body').evaluate((body) => body.scrollTop),
+  ).toBeGreaterThan(400);
+  await expect(page.locator('#layer-list .item-engaged')).toHaveCount(1);
+  expect(await page.locator('#layer-list > .layer').count()).toBeLessThan(20);
+  await page.mouse.up();
+  await expect(page.locator('.item-drag-preview')).toHaveCount(0);
   await page.locator('#window-layers .window-body').evaluate((body) => {
     body.scrollTop = body.scrollHeight;
   });

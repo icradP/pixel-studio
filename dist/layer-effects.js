@@ -133,7 +133,9 @@ export function blendPixels(out, src, opacity = 255, mode = 0, atop = false) {
       ba = out[i + 3];
     if (!sa || (atop && !ba)) continue;
     if (!ba) {
-      out.set(src.subarray(i, i + 3), i);
+      out[i] = src[i];
+      out[i + 1] = src[i + 1];
+      out[i + 2] = src[i + 2];
       out[i + 3] = sa;
       continue;
     }
