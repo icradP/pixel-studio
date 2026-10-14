@@ -14,6 +14,7 @@ export function itemGestures(element, { scroller, swipe, drop, holdDelay = 360 }
     cancelAnimationFrame(job);
     job = 0;
     element.classList.remove('item-lifted', 'item-swiping');
+    element.classList.remove('item-engaged');
     face()?.style.removeProperty('transform');
     target?.classList.remove('item-drop-target');
     if (ghost) {
@@ -106,6 +107,7 @@ export function itemGestures(element, { scroller, swipe, drop, holdDelay = 360 }
       axis: null,
       swiped: element.classList.contains('swiped') ? -186 : 0,
     };
+    element.classList.add('item-engaged');
     (event.target.closest('[data-item-touch]') || element).setPointerCapture(event.pointerId);
     timer = setTimeout(() => {
       if (!state || state.axis || !drop || !element.isConnected) return;

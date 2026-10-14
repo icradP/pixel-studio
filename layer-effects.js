@@ -133,7 +133,9 @@ export function blendPixels(out, src, opacity = 255, mode = 0, atop = false) {
       ba = out[i + 3];
     if (!sa || (atop && !ba)) continue;
     if (!ba) {
-      out.set(src.subarray(i, i + 3), i);
+      out[i] = src[i];
+      out[i + 1] = src[i + 1];
+      out[i + 2] = src[i + 2];
       out[i + 3] = sa;
       continue;
     }
@@ -203,12 +205,13 @@ export function adjustedRgb(rgb, a = {}) {
     bright = (a.brightness || 0) / 100;
   return c.map((v) => 255 * clamp((l + (v - l) * s - 0.5) * k + 0.5 + bright));
 }
-export function layerPixels(p, frame, index, { opacity = false } = {}) {
+export function layerPixels(p, frame, index, { opacity = false, readonly = false } = {}) {
   const l = p.layers[index],
     src = readCel(p.frames[frame].cels[index]),
-    out = new Uint8ClampedArray(src),
     mask = l.maskEnabled !== false ? l.mask : null,
     a = l.adjustments;
+  if (readonly && !mask && !a && (!opacity || l.opacity === 255)) return src;
+  const out = new Uint8ClampedArray(src);
   for (let i = 0; i < out.length; i += 4) {
     if (a && out[i + 3]) out.set(adjustedRgb(out.subarray(i, i + 3), a), i);
     if (mask) out[i + 3] = Math.round((out[i + 3] * mask[i / 4]) / 255);
@@ -242,6 +245,11 @@ export function renderComposite(p, frame) {
       const k = index++,
         l = p.layers[k],
         on = visible && l.visible;
+      if (l.group && !on) {
+        flush();
+        while (index < p.layers.length && (p.layers[index].level || 0) > (l.level || 0)) index++;
+        continue;
+      }
       if (l.group && l.isolated === false) {
         flush();
         render((l.level || 0) + 1, out, on);
@@ -257,11 +265,17 @@ export function renderComposite(p, frame) {
         for (let i = 3; i < length; i += 4)
           src[i] = on ? Math.round((src[i] * l.opacity) / 255) : 0;
       } else {
-        src = layerPixels(p, frame, k, { opacity: true });
+        src = layerPixels(p, frame, k, { opacity: true, readonly: true });
         if (!on) src.fill(0);
       }
       if (l.clipping) {
-        if (pending && !pending.group) blendPixels(pending.pixels, src, 255, l.blend || 0, true);
+        if (pending && !pending.group) {
+          if (!pending.owned) {
+            pending.pixels = new Uint8ClampedArray(pending.pixels);
+            pending.owned = true;
+          }
+          blendPixels(pending.pixels, src, 255, l.blend || 0, true);
+        }
       } else {
         flush();
         pending = { pixels: src, mode: l.blend || 0, group: !!l.group };

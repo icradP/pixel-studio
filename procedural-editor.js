@@ -854,7 +854,7 @@ export function createProceduralEditor(host) {
       try {
         const plan = bakePlan(host.project(), s, options());
         $('#scene-bake-capacity').textContent =
-          `${plan.samples.length} 个采样帧 · 完成后 ${plan.layers} 层 / ${plan.frames} 帧 · ${plan.compact ? `使用无损帧差压缩 · 当前存储 ${mebibytes(plan.bytes)}，生成时检查 32 MB 预算；逐帧解码缓存 ≤16 MiB` : `像素占用 ${mebibytes(plan.bytes)}`}`;
+          `${plan.samples.length} 个采样帧 · 完成后 ${plan.layers} 层 / ${plan.frames} 帧 · ${plan.compact ? `使用无损帧差压缩 · 当前存储 ${mebibytes(plan.bytes)}，生成时检查 256 MiB 预算；逐帧解码缓存 ≤16 MiB` : `像素占用 ${mebibytes(plan.bytes)}`}`;
         $('#scene-bake-confirm').disabled = false;
       } catch (e) {
         $('#scene-bake-capacity').textContent = e.message;

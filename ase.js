@@ -1,6 +1,5 @@
 import { readCel } from './cel-storage.js';
 import { prepareAse } from './layer-effects.js';
-import { LIMITS } from './limits.js';
 import { blank, validate, MAX_PIXELS } from './engine.js';
 class Reader {
   constructor(buffer) {
@@ -58,8 +57,6 @@ export async function readAse(buffer) {
     ![8, 16, 32].includes(depth) ||
     w < 1 ||
     h < 1 ||
-    w > LIMITS.dimension ||
-    h > LIMITS.dimension ||
     count < 1 ||
     count > 240 ||
     w * h * count > MAX_PIXELS
@@ -112,8 +109,7 @@ export async function readAse(buffer) {
           ...(lf & 32 ? { collapsed: true } : {}),
           ...(!(lf & 2) ? { locked: true } : {}),
         });
-        if (p.layers.length > 32 || w * h * count * p.layers.length > MAX_PIXELS)
-          throw Error('项目像素总量超出限制');
+        if (w * h * count * p.layers.length > MAX_PIXELS) throw Error('项目像素总量超出限制');
       } else if (type === 0x2019) {
         const n = r.u32(),
           first = r.u32(),
@@ -326,6 +322,8 @@ function chunk(type, data) {
 }
 export function writeAse(p) {
   validate(p);
+  if (p.w > 65535 || p.h > 65535 || p.layers.length > 65535)
+    throw Error('Aseprite 文件格式的宽高与图层索引必须小于 65536');
   // This writer materializes every cel; compact projects can represent far more pixels.
   if (p.w * p.h * p.layers.length * p.frames.length > MAX_PIXELS)
     throw Error('此项目展开后超过 Aseprite 导出预算，请保存无损 .pixel 工程或减少导出帧数');

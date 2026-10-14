@@ -5,7 +5,7 @@ export async function encodeProjectFile(project) {
   return new Response(source.stream().pipeThrough(new CompressionStream('gzip'))).blob();
 }
 export async function decodeProjectFile(file) {
-  if (file.size > LIMITS.importBytes) throw Error('项目文件超过 60 MiB');
+  if (file.size > LIMITS.projectFileBytes) throw Error('项目文件超过 384 MiB');
   const head = new Uint8Array(await file.slice(0, 2).arrayBuffer());
   if (head[0] !== 0x1f || head[1] !== 0x8b) return deserialize(await file.text());
   const reader = file.stream().pipeThrough(new DecompressionStream('gzip')).getReader();
@@ -16,9 +16,9 @@ export async function decodeProjectFile(file) {
       const { value, done } = await reader.read();
       if (done) break;
       length += value.byteLength;
-      if (length > LIMITS.importBytes) {
+      if (length > LIMITS.projectFileBytes) {
         await reader.cancel();
-        throw Error('解压后的项目超过 60 MiB');
+        throw Error('解压后的项目超过 384 MiB');
       }
       chunks.push(value);
     }

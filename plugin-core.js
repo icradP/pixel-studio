@@ -1,4 +1,4 @@
-import { readCel, cloneCel, editCel } from './cel-storage.js';
+import { readCel, cloneCel, editCel, compactProject, emptyCel, packCel } from './cel-storage.js';
 // Independent browser implementations of publicly described pixel-art workflows.
 // No original Aseprite extension code or assets are bundled. See plugin-sources.txt.
 import { clone, validate, composite, rgba, line, MAX_PIXELS } from './engine.js';
@@ -8,18 +8,30 @@ const integer = (v, min, max, label) => {
   if (!Number.isInteger(v) || v < min || v > max) throw Error(label + '范围：' + min + '–' + max);
   return v;
 };
-export function ensureCapacity(p, layers, frames) {
-  if (layers > LIMITS.layers || frames > LIMITS.frames || p.w * p.h * layers * frames > MAX_PIXELS)
-    throw Error('结果超出画室容量（32 图层、240 帧、800 万像素），请减少参数。');
+export function ensureCapacity(_p, _layers, frames) {
+  if (frames > LIMITS.frames) throw Error('动画帧数超过 240，请减少生成帧数。');
 }
 export function addRasterLayer(p, name, cels) {
   ensureCapacity(p, p.layers.length + 1, p.frames.length);
   const out = clone(p);
   out.layers.push({ name, visible: true, opacity: 255 });
   out.frames.forEach((f, i) =>
-    f.cels.push(cels[i] ? cloneCel(cels[i]) : new Uint8ClampedArray(p.w * p.h * 4)),
+    f.cels.push(
+      cels[i]
+        ? p.storage === 'packed'
+          ? packCel(cels[i])
+          : cloneCel(cels[i])
+        : p.storage === 'packed'
+          ? emptyCel(p.w * p.h * 4)
+          : new Uint8ClampedArray(p.w * p.h * 4),
+    ),
   );
-  return validate(out);
+  return validate(
+    out.storage === 'packed' || out.w * out.h * out.layers.length * out.frames.length > MAX_PIXELS
+      ? compactProject(out)
+      : out,
+    { reusePixels: true },
+  );
 }
 export function rectangleMask(w, h, a, b) {
   const out = new Uint8Array(w * h),
@@ -48,10 +60,10 @@ export function maskBounds(mask, w, h) {
   return x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
 }
 export function snapMask(mask, w, h, { cellW = 16, cellH = 16, offsetX = 0, offsetY = 0 } = {}) {
-  integer(cellW, 1, LIMITS.dimension, '网格宽度');
-  integer(cellH, 1, LIMITS.dimension, '网格高度');
-  integer(offsetX, -LIMITS.dimension, LIMITS.dimension, '网格 X 偏移');
-  integer(offsetY, -LIMITS.dimension, LIMITS.dimension, '网格 Y 偏移');
+  integer(cellW, 1, Number.MAX_SAFE_INTEGER, '网格宽度');
+  integer(cellH, 1, Number.MAX_SAFE_INTEGER, '网格高度');
+  integer(offsetX, -Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, '网格 X 偏移');
+  integer(offsetY, -Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, '网格 Y 偏移');
   const b = maskBounds(mask, w, h);
   if (!b) throw Error('请先使用矩形选区或魔法选择笔画出选区。');
   const x0 = Math.floor((b.x - offsetX) / cellW) * cellW + offsetX,
@@ -61,8 +73,8 @@ export function snapMask(mask, w, h, { cellW = 16, cellH = 16, offsetX = 0, offs
   return rectangleMask(w, h, { x: x0, y: y0 }, { x: x1, y: y1 });
 }
 export function moveSelected(c, w, h, mask, dx, dy, copy = false) {
-  integer(dx, -LIMITS.dimension, LIMITS.dimension, 'X 位移');
-  integer(dy, -LIMITS.dimension, LIMITS.dimension, 'Y 位移');
+  integer(dx, -Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, 'X 位移');
+  integer(dy, -Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, 'Y 位移');
   if (!maskBounds(mask, w, h)) throw Error('请先创建选区。');
   const out = new Uint8ClampedArray(c);
   if (!copy) for (let i = 0; i < mask.length; i++) if (mask[i]) out.fill(0, i * 4, i * 4 + 4);
@@ -144,8 +156,8 @@ export function isoBox({
   return { w, h, data };
 }
 export function placeRaster(raster, w, h, x, y) {
-  integer(x, -LIMITS.dimension, LIMITS.dimension, 'X 位置');
-  integer(y, -LIMITS.dimension, LIMITS.dimension, 'Y 位置');
+  integer(x, -Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, 'X 位置');
+  integer(y, -Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, 'Y 位置');
   const out = new Uint8ClampedArray(w * h * 4);
   for (let sy = 0; sy < raster.h; sy++)
     for (let sx = 0; sx < raster.w; sx++) {
@@ -356,19 +368,25 @@ export function loopLayers(p, periods, duration = 120) {
     if (count > 240) throw Error('组合循环超过 240 帧，请使用较短的图层周期。');
   }
   ensureCapacity(p, p.layers.length, count);
+  const source = p.w * p.h * p.layers.length * count > MAX_PIXELS ? compactProject(p) : p;
   const out = {
-    ...p,
+    ...source,
     layers: p.layers.map((l) => ({ ...l })),
     frames: Array.from({ length: count }, (_, f) => ({
       duration,
-      cels: p.layers.map((_, l) => cloneCel(p.frames[f % periods[l]].cels[l])),
+      cels: p.layers.map((_, l) => cloneCel(source.frames[f % periods[l]].cels[l])),
     })),
   };
   if (out.tags)
     out.tags = out.tags
       .filter((t) => t.from < out.frames.length)
       .map((t) => ({ ...t, to: Math.min(t.to, out.frames.length - 1) }));
-  return validate(out);
+  return validate(
+    out.storage === 'packed' || out.w * out.h * out.layers.length * out.frames.length > MAX_PIXELS
+      ? compactProject(out)
+      : out,
+    { reusePixels: true },
+  );
 }
 export function importAnimation(
   p,
@@ -397,11 +415,12 @@ export function importAnimation(
   integer(start, 0, 239, '放置帧');
   integer(count, 1, 240, '生成帧数');
   integer(duration, 20, 10000, '帧时长');
-  for (const n of [x, y, endX, endY]) integer(n, -LIMITS.dimension, LIMITS.dimension, '移动位置');
+  for (const n of [x, y, endX, endY])
+    integer(n, -Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, '移动位置');
   if (
     !['static', 'linear', 'sine'].includes(path) ||
     !Number.isFinite(amplitude) ||
-    Math.abs(amplitude) > LIMITS.dimension ||
+    Math.abs(amplitude) > Number.MAX_SAFE_INTEGER ||
     !Number.isFinite(cycles) ||
     cycles < 0 ||
     cycles > 20
@@ -409,11 +428,20 @@ export function importAnimation(
     throw Error('动画轨迹参数无效');
   const total = Math.max(p.frames.length, start + count);
   ensureCapacity(p, p.layers.length + 1, total);
-  const out = clone(p);
+  const out = clone(p.w * p.h * (p.layers.length + 1) * total > MAX_PIXELS ? compactProject(p) : p);
   while (out.frames.length < total)
-    out.frames.push({ duration, cels: p.layers.map(() => new Uint8ClampedArray(p.w * p.h * 4)) });
+    out.frames.push({
+      duration,
+      cels: p.layers.map(() =>
+        out.storage === 'packed' ? emptyCel(p.w * p.h * 4) : new Uint8ClampedArray(p.w * p.h * 4),
+      ),
+    });
   out.layers.push({ name: '动画 · ' + source.name.slice(0, 120), visible: true, opacity: 255 });
-  out.frames.forEach((f) => f.cels.push(new Uint8ClampedArray(p.w * p.h * 4)));
+  out.frames.forEach((f) =>
+    f.cels.push(
+      out.storage === 'packed' ? emptyCel(p.w * p.h * 4) : new Uint8ClampedArray(p.w * p.h * 4),
+    ),
+  );
   for (let i = 0; i < count; i++) {
     const f = first + (i % (last - first + 1)),
       t = count === 1 ? 0 : i / (count - 1),
@@ -430,11 +458,16 @@ export function importAnimation(
             pixels.set(src.subarray(n, n + 4), n);
           }
     }
-    out.frames[start + i].cels
-      .at(-1)
-      .set(placeRaster({ w: source.w, h: source.h, data: pixels }, p.w, p.h, dx, dy));
+    const raster = placeRaster({ w: source.w, h: source.h, data: pixels }, p.w, p.h, dx, dy);
+    out.frames[start + i].cels[out.layers.length - 1] =
+      out.storage === 'packed' ? packCel(raster) : raster;
   }
-  return validate(out);
+  return validate(
+    out.storage === 'packed' || out.w * out.h * out.layers.length * out.frames.length > MAX_PIXELS
+      ? compactProject(out)
+      : out,
+    { reusePixels: true },
+  );
 }
 export function shadeNormals(
   diffuse,

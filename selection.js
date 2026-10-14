@@ -141,11 +141,9 @@ export function transformSelection(base, w, h, mask, t) {
   if (
     ![t.cx, t.cy, t.width, t.height, t.angle].every(Number.isFinite) ||
     t.width < 1 ||
-    t.height < 1 ||
-    t.width > 1024 ||
-    t.height > 1024
+    t.height < 1
   )
-    throw Error('变换尺寸范围：1–1024 像素');
+    throw Error('变换尺寸必须为正数');
   const output = new Uint8ClampedArray(base),
     selected = new Uint8Array(w * h);
   if (!t.copy) for (let i = 0; i < mask.length; i++) if (mask[i]) output.fill(0, i * 4, i * 4 + 4);

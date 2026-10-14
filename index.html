@@ -223,12 +223,9 @@
         <h2>一张新画布</h2>
         <label>作品名称<input name="name" value="新的像素作品" maxlength="160" required /></label>
         <div class="dimension-inputs">
-          <label
-            >宽度<input name="width" type="number" min="1" max="1024" value="64" required /></label
+          <label>宽度<input name="width" type="number" min="1" value="64" required /></label
           ><span>×</span
-          ><label
-            >高度<input name="height" type="number" min="1" max="1024" value="64" required
-          /></label>
+          ><label>高度<input name="height" type="number" min="1" value="64" required /></label>
         </div>
         <div class="presets">
           <button type="button" data-size="32">32 × 32</button
@@ -237,9 +234,7 @@
           ><button type="button" data-size="512">512 × 512</button
           ><button type="button" data-size="1024">1024 × 1024</button>
         </div>
-        <p id="new-capacity-note">
-          最大 1024 × 1024 · 32 图层 · 240 帧。图层与帧共用 800 万像素容量。
-        </p>
+        <p id="new-capacity-note">画布宽高和图层数量不设固定上限，按实际内存占用管理。</p>
         <div class="dialog-actions">
           <button type="button" id="cancel-new">取消</button
           ><button type="submit" class="primary">创建画布</button>

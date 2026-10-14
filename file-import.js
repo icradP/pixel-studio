@@ -4,9 +4,14 @@ import { LIMITS } from './limits.js';
 // Validate the selected file here instead of relying on the OS MIME registry.
 export async function importKind(file) {
   if (!file.size) throw Error('文件为空，请先在「文件」中完整下载后再导入。');
-  if (file.size > LIMITS.importBytes) throw Error('文件超过 60 MiB，请先缩小项目。');
   const head = new Uint8Array(await file.slice(0, 128).arrayBuffer()),
     name = file.name || '';
+  const projectFile =
+    (head[0] === 0x1f && head[1] === 0x8b) ||
+    /\.(pixel|json)$/i.test(name) ||
+    /^\s*\{/.test(new TextDecoder().decode(head));
+  if (file.size > (projectFile ? LIMITS.projectFileBytes : LIMITS.importBytes))
+    throw Error(projectFile ? '工程文件超过 384 MiB' : '文件超过 60 MiB，请先缩小文件。');
   if (head.length >= 128 && head[4] === 0xe0 && head[5] === 0xa5) return 'ase';
   if (/\.(ase|aseprite)$/i.test(name)) return 'ase'; // Parser reports corrupt ASEs.
   if ((head[0] === 0x1f && head[1] === 0x8b) || /\.(pixel|json)$/i.test(name)) return 'project';

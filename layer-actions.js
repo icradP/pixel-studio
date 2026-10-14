@@ -1,17 +1,20 @@
-import { cloneCel } from './cel-storage.js';
+import { cloneCel, compactProject, storageBytes } from './cel-storage.js';
 import { cloneLayer } from './engine.js';
-import { LIMITS, projectUsage } from './limits.js';
+import { LIMITS } from './limits.js';
 import { parentLayer, subtreeEnd, reorderLayer } from './animation-edit.js';
 
 export function duplicateLayer(project, index) {
   const end = subtreeEnd(project, index),
     count = end - index;
   if (
-    project.layers.length + count > LIMITS.layers ||
-    projectUsage(project).pixels + project.w * project.h * project.frames.length * count >
-      LIMITS.pixels
-  )
-    throw Error('复制后超出图层或像素容量上限');
+    project.storage !== 'packed' &&
+    project.w * project.h * project.frames.length * (project.layers.length + count) > LIMITS.pixels
+  ) {
+    const compact = compactProject(project);
+    if (storageBytes(compact) > LIMITS.projectBytes) throw Error('复制后超出实际内存容量预算');
+    project.frames = compact.frames;
+    project.storage = 'packed';
+  }
   const layers = project.layers.slice(index, end).map((layer, i) => ({
     ...cloneLayer(layer),
     ...(layer.id ? { id: crypto.randomUUID() } : {}),

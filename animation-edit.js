@@ -1,4 +1,4 @@
-import { cloneCel, emptyCel } from './cel-storage.js';
+import { cloneCel, emptyCel, packCel } from './cel-storage.js';
 import { LIMITS } from './limits.js';
 import { MAX_PIXELS } from './engine.js';
 import { shiftTags } from './animation.js';
@@ -8,12 +8,11 @@ function range(p, a, b) {
     throw Error('请选择有效的帧区间');
 }
 function capacity(p, l, f) {
-  if (
-    l > LIMITS.layers ||
-    f > LIMITS.frames ||
-    (p.storage !== 'packed' && p.w * p.h * l * f > MAX_PIXELS)
-  )
-    throw Error('达到项目容量上限（32 图层、240 帧、800 万像素）');
+  if (f > LIMITS.frames) throw Error('达到项目容量上限（240 帧）');
+  if (p.storage !== 'packed' && p.w * p.h * l * f > MAX_PIXELS) {
+    p.frames = p.frames.map((frame) => ({ ...frame, cels: frame.cels.map((cel) => packCel(cel)) }));
+    p.storage = 'packed';
+  }
 }
 export function editFrames(p, action, a, b = a, destination = 0) {
   range(p, a, b);

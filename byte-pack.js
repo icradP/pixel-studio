@@ -1,3 +1,4 @@
+import { PLANE_BYTES } from './pixel-budget.js';
 // Bounded byte dictionary codec: literal runs followed by 16-bit backward matches.
 // Token high nibble = literal length, low nibble = match length minus 4.
 // A nibble of 15 is extended by bytes (255 continues). No external dictionary.
@@ -58,7 +59,7 @@ export function packBytes(input) {
   return out.slice(0, at);
 }
 export function unpackBytes(input, length) {
-  if (!Number.isInteger(length) || length < 0 || length > 4 * 1024 * 1024 + 4096)
+  if (!Number.isInteger(length) || length < 0 || length > PLANE_BYTES + 4096)
     throw Error('字典解码长度无效');
   const out = new Uint8Array(length);
   let i = 0,

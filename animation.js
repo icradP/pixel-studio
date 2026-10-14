@@ -1,3 +1,4 @@
+import { virtualList } from './virtual-list.js';
 import { celVisible } from './cel-storage.js';
 export function tagSequence(tag, count) {
   const from = tag?.from ?? 0,
@@ -84,7 +85,8 @@ export function createTimeline(host) {
     columns = [],
     rows = [],
     lastFrame = -1,
-    lastLayer = -1;
+    lastLayer = -1,
+    disposeRows = () => {};
   const select = bar.querySelector('select');
   bar.querySelector('#playback-speed').value = host.speed();
   bar.querySelector('#playback-speed').oninput = (e) => {
@@ -160,6 +162,7 @@ export function createTimeline(host) {
     }
   };
   function render() {
+    if (timeline.inert) return;
     const p = host.project(),
       key = host.id() + ':' + host.revision() + ':' + detailed + ':' + active;
     if (key === lastKey) {
@@ -207,6 +210,7 @@ export function createTimeline(host) {
     document.body.classList.toggle('timeline-detailed', detailed);
     frames.hidden = detailed;
     detail.hidden = !detailed;
+    disposeRows();
     columns = [];
     rows = [];
     lastFrame = -1;
@@ -260,10 +264,13 @@ export function createTimeline(host) {
     });
     content.append(header);
     let hiddenDepth = Infinity;
-    for (const li of layerOrder(p.layers)) {
+    const order = layerOrder(p.layers).filter((li) => {
       const depth = p.layers[li].level || 0;
-      if (depth > hiddenDepth) continue;
+      if (depth > hiddenDepth) return false;
       hiddenDepth = p.layers[li].group && p.layers[li].collapsed ? depth : Infinity;
+      return true;
+    });
+    const makeRow = (li) => {
       const layer = p.layers[li],
         row = document.createElement('div');
       row.className = 'ase-grid-row' + (li === host.layer() ? ' current-layer' : '');
@@ -289,7 +296,6 @@ export function createTimeline(host) {
         };
         name.prepend(fold);
       }
-      rows.push([li, row]);
       name.title = layer.name;
       label.onclick = () => host.selectLayer(li);
       row.append(name);
@@ -306,15 +312,26 @@ export function createTimeline(host) {
         b.onclick = () => host.selectCell(i, li);
         row.append(b);
       });
-      content.append(row);
-    }
+      return row;
+    };
+    const body = document.createElement('div');
+    content.append(body);
     detail.append(content);
+    disposeRows = virtualList(body, detail, order, makeRow, {
+      height: 24,
+      gap: 0,
+      changed(mounted) {
+        rows = mounted;
+        columns = [];
+        detail
+          .querySelectorAll('[data-frame]')
+          .forEach((b) => (columns[+b.dataset.frame] ??= []).push(b));
+        lastFrame = lastLayer = -1;
+        highlight();
+      },
+    });
     detail.scrollLeft = left;
     detail.scrollTop = top;
-    detail
-      .querySelectorAll('[data-frame]')
-      .forEach((b) => (columns[+b.dataset.frame] ??= []).push(b));
-    highlight();
   }
   function highlight() {
     const f = host.frame(),

@@ -1,7 +1,8 @@
 import { storageBytes } from './cel-storage.js';
+import { PLANE_BYTES, PROJECT_BYTES } from './pixel-budget.js';
 export const LIMITS = Object.freeze({
-  dimension: 1024,
-  layers: 32,
+  planeBytes: PLANE_BYTES,
+  projectBytes: PROJECT_BYTES,
   frames: 240,
   pixels: 8_000_000,
   historyEntries: 30,
@@ -13,6 +14,7 @@ export const LIMITS = Object.freeze({
   referenceDimension: 2048,
   referencePixels: 1_048_576,
   exportPixels: 16_777_216,
+  projectFileBytes: 384 * 1024 * 1024,
   importBytes: 60 * 1024 * 1024,
 });
 
@@ -28,19 +30,13 @@ export function projectUsage(project) {
     bytes,
     logicalBytes: pixels * 4,
     compact,
-    ratio: Math.max(bytes / (LIMITS.pixels * 4), layers / LIMITS.layers, frames / LIMITS.frames),
-    moreLayers: Math.max(
-      0,
-      Math.min(LIMITS.layers, compact ? LIMITS.layers : Math.floor(LIMITS.pixels / area / frames)) -
-        layers,
-    ),
-    moreFrames: Math.max(
-      0,
-      Math.min(LIMITS.frames, compact ? LIMITS.frames : Math.floor(LIMITS.pixels / area / layers)) -
-        frames,
-    ),
+    ratio: Math.max(bytes / LIMITS.projectBytes, frames / LIMITS.frames),
+    moreLayers: null,
+    moreFrames: Math.max(0, LIMITS.frames - frames),
   };
 }
 
 export const mebibytes = (bytes) =>
-  (bytes / 1024 / 1024).toFixed(bytes > 0 && bytes < 1024 * 1024 ? 3 : 1) + ' MiB';
+  bytes > 0 && bytes < 1024
+    ? bytes + ' B'
+    : (bytes / 1024 / 1024).toFixed(bytes > 0 && bytes < 1024 * 1024 ? 3 : 1) + ' MiB';

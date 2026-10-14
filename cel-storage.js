@@ -3,10 +3,19 @@ import { packBytes, unpackBytes } from './byte-pack.js';
 const cache = new Map();
 let cacheBytes = 0;
 const CACHE_LIMIT = 16 * 1024 * 1024;
+const verified = new WeakMap();
+const sameSignature = (previous, cel) => {
+  const current = signature(cel);
+  return previous?.every((value, i) => value === current[i]);
+};
+const signature = (c) => [c.encoding, c.length, c.data, c.compression, c.words, c.base];
 export const packed = (cel) => cel?.encoding === 'rle32' || cel?.encoding === 'xor32';
-export function validateCel(c, length) {
+export function validateCel(c, length, { reuse = false } = {}) {
   if (!c || c.length !== length) throw Error('像素数据不完整');
   if (!packed(c)) return;
+  // Packed planes are immutable inside the editor. External/import validation
+  // remains exhaustive; metadata transactions reuse only already checked planes.
+  if (reuse && sameSignature(verified.get(c), c)) return;
   if (
     !(
       (c.data instanceof Uint32Array && c.compression === undefined) ||
@@ -21,7 +30,7 @@ export function validateCel(c, length) {
     throw Error('压缩像素数据无效');
   if (c.encoding === 'xor32') {
     if (!c.base || c.base.encoding !== 'rle32') throw Error('帧差参考无效');
-    validateCel(c.base, length);
+    validateCel(c.base, length, { reuse });
   }
   const data = celWords(c);
   let n = 0;
@@ -34,9 +43,11 @@ export function validateCel(c, length) {
     n += count;
   }
   if (n !== length / 4) throw Error('压缩像素长度无效');
+  verified.set(c, signature(c));
   return data;
 }
 function remember(c, pixels) {
+  if (pixels.byteLength > CACHE_LIMIT) return pixels;
   cache.set(c, pixels);
   cacheBytes += pixels.byteLength;
   while (cacheBytes > CACHE_LIMIT && cache.size > 1) {
@@ -54,7 +65,7 @@ export function readCel(c) {
     cache.set(c, pixels);
     return pixels;
   }
-  const data = validateCel(c, c.length);
+  const data = validateCel(c, c.length, { reuse: true }) || celWords(c);
   const pixels = new Uint8ClampedArray(c.length),
     words = new Uint32Array(pixels.buffer);
   let at = 0;

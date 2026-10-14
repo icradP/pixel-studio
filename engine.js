@@ -1,18 +1,24 @@
-import { cloneCel, validateCel, storageBytes } from './cel-storage.js';
+import { cloneCel, validateCel, storageBytes, emptyCel } from './cel-storage.js';
+import { canvasPixels } from './pixel-budget.js';
 import { encodeProject, decodeProject } from './project-codec.js';
 import { renderComposite } from './layer-effects.js';
 import { LIMITS } from './limits.js';
 import { validateScene } from './procedural-model.js';
 export const MAX_PIXELS = LIMITS.pixels;
 export function blank(w = 64, h = 64, name = '未命名作品') {
+  const area = canvasPixels(w, h),
+    compact = area > MAX_PIXELS;
   return {
     format: 'pixel-studio',
     version: 1,
     name,
     w,
     h,
+    ...(compact ? { storage: 'packed' } : {}),
     layers: [{ name: '图层 1', visible: true, opacity: 255 }],
-    frames: [{ duration: 120, cels: [new Uint8ClampedArray(w * h * 4)] }],
+    frames: [
+      { duration: 120, cels: [compact ? emptyCel(area * 4) : new Uint8ClampedArray(area * 4)] },
+    ],
   };
 }
 export function cloneLayer(l) {
@@ -31,7 +37,7 @@ export function clone(p) {
     frames: p.frames.map((f) => ({ ...f, cels: f.cels.map(cloneCel) })),
   };
 }
-export function validate(p) {
+export function validate(p, { reusePixels = false } = {}) {
   if (
     !p ||
     p.format !== 'pixel-studio' ||
@@ -40,17 +46,14 @@ export function validate(p) {
     !Number.isInteger(p.h) ||
     p.w < 1 ||
     p.h < 1 ||
-    p.w > LIMITS.dimension ||
-    p.h > LIMITS.dimension ||
     !Array.isArray(p.layers) ||
     !Array.isArray(p.frames) ||
     p.layers.length < 1 ||
-    p.layers.length > LIMITS.layers ||
     p.frames.length < 1 ||
-    p.frames.length > LIMITS.frames ||
-    (p.storage !== 'packed' && p.w * p.h * p.layers.length * p.frames.length > MAX_PIXELS)
+    p.frames.length > LIMITS.frames
   )
-    throw Error('项目尺寸或图层、帧数量超出限制（最大 1024 × 1024，总计 800 万像素）。');
+    throw Error('项目尺寸或图层、帧数据无效（最多 240 帧）。');
+  canvasPixels(p.w, p.h);
   if (typeof p.name !== 'string' || p.name.length > 160) throw Error('项目名称无效');
   p.layers.forEach((l) => {
     if (
@@ -132,10 +135,10 @@ export function validate(p) {
     )
       throw Error('动画数据无效');
     f.cels.forEach((c) => {
-      validateCel(c, p.w * p.h * 4);
+      validateCel(c, p.w * p.h * 4, { reuse: reusePixels });
     });
   });
-  if (storageBytes(p) > MAX_PIXELS * 4) throw Error('项目实际像素存储超过 32 MB 上限');
+  if (storageBytes(p) > LIMITS.projectBytes) throw Error('项目实际像素存储超过 256 MiB 内存预算');
   validateScene(p.procedural, p);
   return p;
 }
@@ -144,10 +147,11 @@ export function deserialize(s) {
   const p = JSON.parse(s);
   if (p.version === 2) return validate(decodeProject(p));
   if (!p.frames || !Array.isArray(p.frames)) throw Error('不是像素画室项目');
-  if (!Array.isArray(p.layers) || p.layers.length > LIMITS.layers) throw Error('图层数据无效');
+  if (!Array.isArray(p.layers)) throw Error('图层数据无效');
+  canvasPixels(p.w, p.h);
   p.layers = p.layers.map((l) => {
     if (l.mask === undefined) return l;
-    if (typeof l.mask !== 'string' || l.mask.length > Math.ceil(LIMITS.dimension ** 2 / 3) * 4)
+    if (typeof l.mask !== 'string' || l.mask.length > Math.ceil((p.w * p.h) / 3) * 4)
       throw Error('图层遮罩数据无效');
     return { ...l, mask: Uint8ClampedArray.from(atob(l.mask), (x) => x.charCodeAt(0)) };
   });
