@@ -2667,7 +2667,7 @@ function settingsPanel() {
     if (r) {
       await r.update();
       toast('已检查更新；如有新版本，顶部会显示更新提示');
-    } else toast('当前版本 v0.13.0');
+    } else toast('当前版本 v0.17.0');
   };
 }
 function download(data, ext, type) {

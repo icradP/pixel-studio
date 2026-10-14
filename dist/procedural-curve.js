@@ -10,6 +10,7 @@ export function curveEditor(
     preview = () => {},
     cancel = () => {},
     label = '路径进度',
+    xLabel = '时间',
     toast = () => {},
     monotonic = false,
   },
@@ -17,7 +18,7 @@ export function curveEditor(
   let keys = structuredClone(initial),
     selected = 0,
     drag = null;
-  container.innerHTML = `<div class="scene-curve-presets"></div><svg class="scene-curve" viewBox="0 0 280 160" aria-label="${label}曲线：横轴时间，纵轴数值"><path class="scene-curve-grid" d="M20 12V140H264M20 76H264M142 12V140"/><path class="scene-curve-line"/><g></g><text x="244" y="156">时间</text><text x="20" y="10">${label}</text></svg><p class="help">拖动圆点调节；双击空白添加点。方向键微调选中的点。</p><div class="scene-two"><label>时间 %<input class="curve-time" type="number" min="0" max="100" step="1"></label><label>${label} %<input class="curve-value" type="number" min="0" max="100" step="1"></label></div><div class="scene-two"><button class="curve-add">添加节点</button><button class="curve-remove">删除此点</button></div><label>批量节点间隔 / %<input class="curve-spacing" type="number" min="1" max="100" step="0.1" value="10"></label><button class="curve-batch">按间隔添加节点</button><p class="curve-status" role="status"></p>`;
+  container.innerHTML = `<div class="scene-curve-presets"></div><svg class="scene-curve" viewBox="0 0 280 160" aria-label="${label}曲线：横轴${xLabel}，纵轴数值"><path class="scene-curve-grid" d="M20 12V140H264M20 76H264M142 12V140"/><path class="scene-curve-line"/><g></g><text x="244" y="156">${xLabel}</text><text x="20" y="10">${label}</text></svg><p class="help">拖动圆点调节；双击空白添加点。方向键微调选中的点。</p><div class="scene-two"><label>${xLabel} %<input class="curve-time" type="number" min="0" max="100" step="0.1"></label><label>${label} %<input class="curve-value" type="number" min="0" max="100" step="0.1"></label></div><div class="scene-two"><button class="curve-add">添加节点</button><button class="curve-remove">删除此点</button></div><label>批量节点间隔 / %<input class="curve-spacing" type="number" min="1" max="100" step="0.1" value="10"></label><button class="curve-batch">按间隔添加节点</button><p class="curve-status" role="status"></p>`;
   const q = (s) => container.querySelector(s),
     svg = q('svg'),
     group = q('g');
@@ -56,7 +57,7 @@ export function curveEditor(
       c.setAttribute('role', 'button');
       c.setAttribute(
         'aria-label',
-        `曲线点 ${i + 1}：时间 ${Math.round(k.t * 100)}%，${label} ${Math.round(k.v * 100)}%`,
+        `曲线点 ${i + 1}：${xLabel} ${Math.round(k.t * 100)}%，${label} ${Math.round(k.v * 100)}%`,
       );
       group.append(c);
     });

@@ -265,6 +265,7 @@ export function createBrushPanel(root, host, initialGroup) {
     const buildCurve = () =>
       curveEditor(q('#pressure-node-editor'), pressureKeys(current().pressureCurve), {
         label: '压感响应',
+        xLabel: '输入压力',
         monotonic: true,
         commit: (keys) => patch({ pressureCurve: keys }),
         toast: host.toast,
