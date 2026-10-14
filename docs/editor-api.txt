@@ -1,0 +1,108 @@
+Pixel Studio Editor API v1 / WebMCP · v0.14.0
+
+入口
+----
+网页在初始化当前作品后注册 pixel_* 工具。优先使用 document.modelContext，
+兼容早期 navigator.modelContext。检测不到支持时，不加载 editor-api.js。
+没有额外服务器或 API key。调用方需要具备 WebMCP 站点工具能力。
+偏好设置 → AI 协作可关闭工具或取消当前操作；关闭立即取消运行并注销工具。
+ChatGPT/Codex 的工具可发现性取决于客户端、模型与账号开放情况。
+
+架构
+----
+界面与 AI 共用 app.js 的 commitProject 提交、history、changed/render 和本地保存。
+既有笔画继续通过同一个 history/changed 流程提交，不把高频指针事件转换成工具调用。
+editor-api.js 通过注入 host 访问工程，不读取 DOM，也不依赖 WebMCP。
+绘图/图层/帧复用既有引擎。动画配置只复制元数据；烘焙使用既有程序化引擎。
+editor-media.js 仅在预览或导出时加载，负责实际像素合成和浏览器文件下载。
+webmcp.js 仅适配注册与调用；不能执行调用方提供的任意 JavaScript 或网络请求。
+
+共同约定
+--------
+1. 先调用 pixel_get_document。所有其他工具必须携带该响应的 expectedRevision。
+   revision 是不透明字符串：作品、编辑版本、活动帧/图层、选区或取色改变会使其失效。
+   修改后的响应 document 包含新的 revision；不要解析、递增或自行构造版本。
+2. 图层和帧索引从 0 开始。批处理中后续操作使用前面操作完成后的索引。
+   图层按组内从底到顶排列；动画对象按数组顺序叠放。
+3. 绘图使用原画布整数像素；镜像、旋转、缩放仅影响查看，不改变工具坐标。
+   颜色为 #RRGGBB 或 #RRGGBBAA，默认 replace，透明值可清除像素。
+   over 使用 source-over；透明度锁定保留原 alpha，锁定图层/父级不能绘制。
+   选区默认 current；若要忽略选区，明确传 selection="all"。
+4. 图层遮罩、混合模式等合成效果由现有引擎处理；draw 修改的是指定 cel 的原始像素。
+   它不模拟笔压/笔刷插件，也不编辑图层遮罩。当前 API 不提供骨骼、IK 或网格变形。
+5. 单次请求最多 2,000,000 个 JSON 字符；draw 最多 256 条命令、400 万像素访问，
+   单个索引像素块最多 262144 像素。工程的 1024 边长/32 层/240 帧/800 万像素限制仍生效。
+6. 操作先校验，在独立工作副本中处理，成功后提交一次撤销；失败不留下部分内容。
+   正在绘画、拖动、输入或显示模态对话框时返回 EDITOR_BUSY。读取工程始终可用。
+   烘焙逐帧让出主线程，期间用户修改/切换作品会使提交返回 STALE_REVISION。
+7. create_document 先保存旧作品并新建画廊记录；作品切换不属于单个工程的撤销记录。
+   save 返回 savedRevision。export 触发浏览器下载，不把整个工程塞进工具结果。
+8. WebMCP 错误返回 {isError:true,code,message,revision}。
+   常见 code：INVALID_INPUT、STALE_REVISION、EDITOR_BUSY、CANCELLED、SOURCE_IN_USE、
+   INPUT_TOO_LARGE、NO_HISTORY、SAVE_FAILED、OPERATION_FAILED。
+   核心 API 直接调用时抛出 Error（若有 code 则保留）；WebMCP 层负责结构化返回。
+
+工具
+----
+pixel_get_document     当前工程、图层/帧摘要、选区边界、容量、历史和完整可编辑动画元数据。
+pixel_create_document  name,width,height。保存旧作品后创建独立新作品。
+pixel_edit_layers      operations：add(name,parent=-1,group=false)、update(layer及属性)、
+                       duplicate(layer)、move(layer,parent)、delete(layer)。一个动作只传其适用字段。
+                       update 可改 name,visible,opacity(0..255),locked,alphaLock。
+pixel_edit_frames      operations：blank/duplicate/delete(from,to)、move(from,to,destination)、
+                       duration(from,to,duration)。to 默认 from；时长 20..10000 ms。
+pixel_draw             frame,layer,commands。pixel / line / rect / ellipse / polygon / patch。
+                       rect/ellipse 的 x,y,width,height 指外接像素区域，fill 默认 true。
+                       patch 用 palette 与行优先 indices；indices 数量必须等于 width×height。
+pixel_expand_canvas    left,right,top,bottom，均为非负像素；至少一个方向增加。
+pixel_edit_animation   settings(name,duration,fps,loop,range)，baseFrame；objects 有序批处理。
+                       create 需要 name,sourceLayers，可用 region 矩形截取；id 由画室生成。
+                       update/delete 用 get_document 返回的对象 id。删除只接受 action,id。
+                       origin 为源像素轴心，path 为轴心目的位置，控制点 in/out 可省略。
+                       tracks: rotation(度),scaleX/scaleY(倍数),opacity(0..1)，每个 key 为 {t,v}。
+                       t 为秒、严格递增；progress 和 clips.curve 用归一化 t/v，须有 t=0/1 端点。
+                       clips: rotate/stretch/squash/fade/shake；参数范围以工具 schema 为准。
+                       更新保留未传字段，传入的轨道或 clips 数组整组替换。
+                       不允许删除仍作为动画来源的图层/帧，先移除对应对象。
+pixel_preview          frames 或 times，最多 16 个；maxEdge(16..512)控制每个格子的上限。
+                       返回 content 中的 PNG、revision、采样点、尺寸；同时显示预览浮窗。
+                       多格总内容像素最多约 26 万，标签单独计入；最近邻缩放。
+                       如果客户端仅显示 JSON，用页面预览浮窗截图检查真实画面。
+pixel_bake_animation   mode(objects/composite),replace=false,dryRun=false。
+                       dryRun 只返回容量计划；提交结果 frameRange 是新动画的闭区间。
+pixel_history          direction(undo/redo)。与手动撤销共用，选区编辑期间需先退出选区工具。
+pixel_save             当前设备 IndexedDB 保存完成后返回成功或错误。
+pixel_export           format(pixel/png/gif/sheet),from,to。PNG 默认当前帧；GIF/sheet 默认全部帧。
+                       烘焙后应指定 frameRange，排除源绘画帧。GIF 使用现有 216 色近似量化。
+
+原生浏览器调用示例（不是额外全局变量或测试后门）
+------------------------------------------------
+const tools = await document.modelContext.getTools();
+const invoke = async (name, args = {}) => JSON.parse(await document.modelContext.executeTool(
+  tools.find(tool => tool.name === name), args
+));
+let state = await invoke('pixel_get_document');
+let result = await invoke('pixel_create_document', {
+  expectedRevision: state.revision, name: '动画练习', width: 64, height: 64
+});
+state = result.document;
+result = await invoke('pixel_draw', {
+  expectedRevision: state.revision, frame: 0, layer: 0,
+  commands: [{type:'ellipse',x:16,y:16,width:24,height:24,color:'#80ddcc'}]
+});
+state = result.document;
+result = await invoke('pixel_edit_animation', {
+  expectedRevision: state.revision,
+  settings: {duration:1,fps:12},
+  objects: [{action:'create',name:'圆球',sourceLayers:[0],path:[{x:28,y:28},{x:44,y:36}]}]
+});
+await invoke('pixel_preview', {expectedRevision:result.document.revision,times:[0,0.25,0.5,0.75]});
+
+上述示例每一步都需先检查 isError。浏览器切页或工具列表变化后重新 getTools。
+AI 客户端通过自身的站点工具能力发现与调用，无需执行上面的页面 JavaScript。
+
+规范参考（截至 2026-10-14，仍为社区草案）
+---------------------------------------
+https://webmachinelearning.github.io/webmcp/
+https://github.com/webmachinelearning/webmcp/blob/main/implementation-status.md
+https://learn.chatgpt.com/docs/webmcp

@@ -6,6 +6,7 @@ import { LIMITS, projectUsage, mebibytes } from './limits.js';
 import { installControls, updateRanges } from './controls.js';
 import { openProjectStore } from './project-store.js';
 import { createHistory } from './history.js';
+import { createEditorIntegration } from './editor-integration.js';
 import { createRenderScheduler } from './render-scheduler.js';
 import {
   BRUSH_PRESETS,
@@ -312,8 +313,7 @@ function editProject(fn) {
     throw e;
   }
   checkpoint(before);
-  selection = null;
-  changed();
+  commitProject(project, { before, checkpointed: true, focus: { frame, layer } });
 }
 function frameCanvas(index) {
   const key = id + ':' + dirtyVersion;
@@ -416,6 +416,34 @@ function capacity(layers, frames) {
 }
 function checkpoint(snapshot = clone(project)) {
   history.checkpoint(snapshot);
+}
+// Shared transaction boundary for interface edits, procedural editing, and AI commands.
+function commitProject(
+  next,
+  {
+    before,
+    checkpointed = false,
+    sceneOnly = false,
+    focus = {},
+    preserveSelection = false,
+    exitAnimation = false,
+  } = {},
+) {
+  validate(next);
+  if (!checkpointed) {
+    if (sceneOnly) history.checkpointScene(project.procedural);
+    else checkpoint(before || clone(project));
+  }
+  const resized = project.w !== next.w || project.h !== next.h;
+  stop();
+  procedural?.pause();
+  if (exitAnimation) procedural?.leave();
+  project = next;
+  frame = Math.min(focus.frame ?? frame, project.frames.length - 1);
+  layer = Math.min(focus.layer ?? layer, project.layers.length - 1);
+  if (!preserveSelection) selection = null;
+  changed(null, sceneOnly);
+  if (resized) fit();
 }
 function updateHistory() {
   const active = selectionUI?.editingSelection ? selectionUI : history;
@@ -533,19 +561,11 @@ $('#procedural-open').onclick = async () => {
           },
           commitScene: (scene) => {
             const next = { ...project, procedural: scene };
-            validate(next);
-            history.checkpointScene(project.procedural);
-            project = next;
-            changed(null, true);
+            commitProject(next, { sceneOnly: true });
           },
           commitBake: (result) => {
-            checkpoint(project);
-            project = result.project;
-            frame = result.frame;
-            layer = result.layer;
-            selection = null;
+            commitProject(result.project, { focus: { frame: result.frame, layer: result.layer } });
             if (!timelineOpen) toggleTimeline();
-            changed();
           },
         });
         return procedural;
@@ -2384,8 +2404,9 @@ function settingsPanel() {
     <section class="setting-group"><h3>画室</h3>
       <button id="settings-export" class="panel-wide">分享与导出 <span>项目 · 图片 · 动画 ›</span></button><button id="settings-plugins" class="panel-wide">插件工作台 <span>5 个扩展 · ›</span></button>
       <button id="install-help" class="panel-wide">添加到主屏幕 <span>全屏使用 · ›</span></button>
-      <button id="check-update" class="panel-wide">检查更新 <span>v0.13.0</span></button>
+      <button id="check-update" class="panel-wide">检查更新 <span>v0.14.0</span></button>
     </section>`;
+  editorIntegration.settings(panelContent('settings'));
   document
     .querySelectorAll('.mirror-controls [data-mirror]')
     .forEach((b) => (b.onclick = () => mirrorView(b.dataset.mirror)));
@@ -2931,6 +2952,7 @@ async function init() {
         reg.update().catch(() => {});
       })
       .catch(() => toast('离线缓存暂未启用，联网时仍可正常绘画'));
+  await editorIntegration.start();
 }
 for (const d of $$('#gallery-dialog,#new-dialog')) {
   d.addEventListener('cancel', (e) => {
@@ -2946,6 +2968,64 @@ for (const d of $$('#gallery-dialog,#new-dialog')) {
   });
 }
 installControls();
+const editorIntegration = createEditorIntegration({
+  snapshot: () => ({
+    project,
+    id,
+    frame,
+    layer,
+    selection,
+    history,
+    revision: contextToken(),
+    busy:
+      document.body.inert || switchingProject
+        ? '作品正在加载，请稍后重试'
+        : stroke || selectionUI?.transforming || procedural?.busy
+          ? '请先完成笔画、选区或动画调整'
+          : $('dialog[open]')
+            ? '请先关闭当前对话框'
+            : null,
+  }),
+  selectionInfo: () => ({
+    active: !!selection,
+    bounds: selection ? maskBounds(selection, project.w, project.h) : null,
+  }),
+  commit: (next, options) => commitProject(next, options),
+  create: async (next, check) => {
+    if (!(await saveCurrent())) return false;
+    check();
+    return loadProject(next);
+  },
+  history: (direction) => {
+    if (selectionUI?.editingSelection) throw Error('请先退出选区编辑再撤销作品');
+    restoreHistory(direction);
+  },
+  save: saveCurrent,
+  download: (blob, filename) => {
+    const url = URL.createObjectURL(blob),
+      a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  },
+  showPreview: (canvas, metadata) => {
+    const existing = toolWindows.has('ai-preview');
+    const show = () => {
+      const body = panelContent('ai-preview'),
+        caption = document.createElement('p');
+      caption.className = 'help';
+      caption.textContent = `${metadata.sourceWidth} × ${metadata.sourceHeight} · ${metadata.samples.length} 个画面 · 预览快照`;
+      canvas.id = 'ai-preview-canvas';
+      canvas.setAttribute('aria-label', 'AI 渲染预览');
+      canvas.style.cssText =
+        'display:block;width:100%;height:auto;image-rendering:pixelated;background:repeating-conic-gradient(#555 0% 25%,#444 0% 50%) 0 0/16px 16px';
+      body.replaceChildren(canvas, caption);
+    };
+    toolWindows.open('ai-preview', 'AI 画面预览', show);
+    if (existing) show();
+  },
+});
 $('#capacity-indicator').onclick = (event) => openPanel('capacity', event.currentTarget);
 document.body.inert = true;
 init()

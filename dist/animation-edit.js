@@ -106,7 +106,7 @@ export function visibleLayerOrder(p, order) {
 }
 export function addLayer(p, current, group = false) {
   capacity(p, p.layers.length + 1, p.frames.length);
-  const parent = p.layers[current]?.group ? current : parentLayer(p, current),
+  const parent = current < 0 ? -1 : p.layers[current]?.group ? current : parentLayer(p, current),
     at = parent >= 0 ? subtreeEnd(p, parent) : p.layers.length,
     level = parent >= 0 ? (p.layers[parent].level || 0) + 1 : 0;
   const layer = {
