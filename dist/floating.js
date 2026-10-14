@@ -31,6 +31,8 @@ export function floatingPanel(
     closed = false,
     moved = false;
   let resizing = null;
+  // User size is independent of the temporary keyboard/viewport/collapsed size.
+  let preferredSize = null;
   const parts = () =>
     element.querySelectorAll(
       '.plugins-body,.plugins-footer,.window-body,.window-footer,.selection-body',
@@ -82,15 +84,22 @@ export function floatingPanel(
     };
   }
   function clamp() {
-    if (closed || element.hidden || drag) return;
+    if (closed || element.hidden || drag || resizing) return;
+    const collapsed = element.classList.contains('float-collapsed');
+    const area = bounds();
+    // Measure expanded content with the full available space first. Measuring
+    // under the previous max-height creates a self-reinforcing tiny window.
+    if (element.id !== 'selection-bar')
+      element.style.setProperty(
+        '--window-available-height',
+        Math.max(120, area.limit - area.top - 8) + 'px',
+      );
     if (resizable) {
+      preferredSize ||= { width: element.offsetWidth, height: element.offsetHeight };
       element.style.width =
-        Math.min(element.offsetWidth, (window.visualViewport?.width || innerWidth) - 16) + 'px';
-      element.style.height =
-        Math.min(
-          parseFloat(element.style.height) || element.offsetHeight,
-          (window.visualViewport?.height || innerHeight) - bounds().top - 8,
-        ) + 'px';
+        Math.min(preferredSize.width, (window.visualViewport?.width || innerWidth) - 16) + 'px';
+      if (!collapsed)
+        element.style.height = Math.min(preferredSize.height, area.limit - area.top - 8) + 'px';
     }
     const box = bounds();
     const left = Math.max(box.left, Math.min(box.right, element.offsetLeft));
@@ -99,11 +108,6 @@ export function floatingPanel(
     element.style.top = top + 'px';
     element.style.right = 'auto';
     element.style.bottom = 'auto';
-    if (element.id !== 'selection-bar')
-      element.style.setProperty(
-        '--window-available-height',
-        Math.max(120, box.limit - top - 8) + 'px',
-      );
   }
   function position() {
     if (!autoPlace) return;
@@ -285,6 +289,7 @@ export function floatingPanel(
       const finishSize = () => {
         if (!resizing) return;
         sizeJob.flush();
+        preferredSize = { width: resizing.width, height: resizing.height };
         resizing = null;
         element.classList.remove('window-resizing');
         clamp();
@@ -307,6 +312,10 @@ export function floatingPanel(
             element.offsetHeight +
               (event.key === 'ArrowDown' ? 10 : event.key === 'ArrowUp' ? -10 : 0),
           ) + 'px';
+        preferredSize = {
+          width: parseFloat(element.style.width),
+          height: parseFloat(element.style.height),
+        };
         clamp();
       };
     }

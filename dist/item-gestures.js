@@ -1,7 +1,10 @@
 import { reducedMotion } from './motion.js';
 
 // The lifted preview follows the pointer while the source keeps its list geometry.
-export function itemGestures(element, { scroller, swipe, drop, holdDelay = 360 }) {
+export function itemGestures(
+  element,
+  { scroller, swipe, drop, holdDelay = 280, insertion = false },
+) {
   let state,
     timer,
     target,
@@ -17,6 +20,7 @@ export function itemGestures(element, { scroller, swipe, drop, holdDelay = 360 }
     element.classList.remove('item-engaged');
     face()?.style.removeProperty('transform');
     target?.classList.remove('item-drop-target');
+    target?.removeAttribute('data-drop-position');
     if (ghost) {
       const preview = ghost,
         rect = target?.getBoundingClientRect();
@@ -51,11 +55,23 @@ export function itemGestures(element, { scroller, swipe, drop, holdDelay = 360 }
       const candidate = document.elementFromPoint(state.px, state.py)?.closest('[data-drag-key]');
       if (candidate !== target) {
         target?.classList.remove('item-drop-target');
+        target?.removeAttribute('data-drop-position');
         target =
           candidate !== element && candidate?.parentElement === element.parentElement
             ? candidate
             : null;
         target?.classList.add('item-drop-target');
+      }
+      if (insertion && target) {
+        const box = target.getBoundingClientRect(),
+          ratio = (state.py - box.top) / box.height;
+        state.placement =
+          target.dataset.dropGroup && ratio > 0.3 && ratio < 0.7
+            ? 'inside'
+            : ratio < 0.5
+              ? 'above'
+              : 'below';
+        target.dataset.dropPosition = state.placement;
       }
       const box = scroller.getBoundingClientRect();
       const velocity =
@@ -162,12 +178,13 @@ export function itemGestures(element, { scroller, swipe, drop, holdDelay = 360 }
     if (!state) return;
     const dx = state.px - state.x,
       destination = target?.dataset.dragKey,
+      placement = state.placement,
       drag = state.drag,
       axis = state.axis;
     state = null;
     if (drag || axis) suppressUntil = performance.now() + 400;
     clean(drag && destination !== undefined);
-    if (drag && destination !== undefined) drop?.(destination);
+    if (drag && destination !== undefined) drop?.(destination, placement);
     else if (!drag && axis === 'x' && Math.abs(dx) > 35) swipe?.(dx < 0 ? 'left' : 'right');
   });
   for (const type of ['pointercancel', 'lostpointercapture'])

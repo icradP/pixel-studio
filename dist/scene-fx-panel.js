@@ -1,5 +1,5 @@
 import { effectClip, EFFECT_NAMES } from './scene-effects.js';
-import { uid, pathNode } from './procedural-model.js';
+import { uid } from './procedural-model.js';
 const esc = (s) =>
   String(s).replace(
     /[&<>"']/g,
@@ -55,88 +55,4 @@ export function batchEffectsPanel(body, { scene, selected, edit, toast, targets:
     apply((v) => v.clips.push({ ...structuredClone(clip), id: uid() }));
   };
 }
-export function lightsPanel(body, { scene, project, edit, selectedLight, setSelectedLight }) {
-  const s = scene(),
-    p = project(),
-    lights = s.lights || [],
-    l = lights.find((v) => v.id === selectedLight) || lights[0];
-  body.innerHTML = `<p class="help">光照只改变颜色，保留透明区域。最多 8 盏灯，可设置光色、移动路径和明暗节奏。</p><button id="light-add" class="primary panel-wide" ${lights.length >= 8 ? 'disabled' : ''}>＋ 添加光源</button><div class="scene-effect-list">${lights.map((v) => `<button data-light="${esc(v.id)}" class="${l?.id === v.id ? 'active' : ''}">${esc(v.name)}</button>`).join('')}</div><div id="light-fields"></div>`;
-  const $ = (sel) => body.querySelector(sel);
-  $('#light-add').onclick = () => {
-    const id = uid();
-    setSelectedLight(id);
-    edit((n) => {
-      n.lights ||= [];
-      n.lights.push({
-        id,
-        name: `光源 ${n.lights.length + 1}`,
-        enabled: true,
-        x: p.w / 2,
-        y: p.h / 2,
-        radius: Math.max(16, p.w / 3),
-        intensity: 0.6,
-        color: '#a3dbff',
-        colorTo: '#ff8dc8',
-        start: 0,
-        end: s.duration,
-        pulse: 0.4,
-        frequency: 1,
-        phase: 0,
-        colorCycle: false,
-      });
-    });
-  };
-  body.querySelectorAll('[data-light]').forEach(
-    (b) =>
-      (b.onclick = () => {
-        setSelectedLight(b.dataset.light);
-        lightsPanel(body, {
-          scene,
-          project,
-          edit,
-          selectedLight: b.dataset.light,
-          setSelectedLight,
-        });
-      }),
-  );
-  if (!l) return;
-  const end = l.path?.[1] || l;
-  $('#light-fields').innerHTML =
-    `<label>名称<input id="light-name" maxlength="80" value="${esc(l.name)}"></label><label class="switch">开启光源<input id="light-enabled" type="checkbox" ${l.enabled ? 'checked' : ''}></label><div class="scene-two">${field('light-x', '位置 X', l.x, -16384, 16384, 1)}${field('light-y', '位置 Y', l.y, -16384, 16384, 1)}${field('light-radius', '光照半径 / px', l.radius, 1, 2048, 1)}${field('light-intensity', '亮度', l.intensity, 0, 4, 0.05)}<label>光色<input id="light-color" type="color" value="${l.color}"></label><label>变化光色<input id="light-colorTo" type="color" value="${l.colorTo || l.color}"></label>${field('light-start', '开启 / 秒', l.start, 0, s.duration)}${field('light-end', '关闭 / 秒', l.end, 0, s.duration)}${field('light-pulse', '明暗幅度', l.pulse || 0, 0, 1, 0.05)}${field('light-frequency', '明暗频率 / Hz', l.frequency ?? 1, 0, 20, 0.1)}</div><label class="switch">循环变换光色<input id="light-colorCycle" type="checkbox" ${l.colorCycle ? 'checked' : ''}></label><details><summary>动态光源路径</summary><p class="help">从当前位置到终点，再返回起点，随场景时长循环。</p><div class="scene-two">${field('light-to-x', '终点 X', end.x, -16384, 16384, 1)}${field('light-to-y', '终点 Y', end.y, -16384, 16384, 1)}</div><button id="light-path">应用往返路径</button><button id="light-static">固定光源位置</button></details><button id="light-delete" class="danger panel-wide">移除光源</button>`;
-  const change = (fn) => edit((n) => fn(n.lights.find((v) => v.id === l.id)));
-  for (const key of [
-    'name',
-    'enabled',
-    'x',
-    'y',
-    'radius',
-    'intensity',
-    'color',
-    'colorTo',
-    'start',
-    'end',
-    'pulse',
-    'frequency',
-    'colorCycle',
-  ])
-    $('#light-' + key).onchange = (e) => {
-      const value =
-        e.target.type === 'checkbox'
-          ? e.target.checked
-          : e.target.type === 'number'
-            ? +e.target.value
-            : e.target.value;
-      change((v) => {
-        v[key] = value;
-        if (key === 'x' || key === 'y') delete v.path;
-      });
-    };
-  $('#light-path').onclick = () => {
-    const x = +$('#light-to-x').value,
-      y = +$('#light-to-y').value;
-    change((v) => (v.path = [pathNode(v.x, v.y), pathNode(x, y), pathNode(v.x, v.y)]));
-  };
-  $('#light-static').onclick = () => change((v) => delete v.path);
-  $('#light-delete').onclick = () =>
-    edit((n) => (n.lights = n.lights.filter((v) => v.id !== l.id)));
-}
+export { lightsPanel } from './lights-panel.js';

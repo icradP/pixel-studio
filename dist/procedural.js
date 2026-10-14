@@ -247,6 +247,7 @@ export function evaluateScene(compiled, scene, time, { solo = null, objectIds = 
     const pixels = rasterObject(compiled, o, time),
       box = compiled.rasterBounds;
     if (!box) continue;
+    applyLights(pixels, compiled.w, compiled.h, scene, time, o.id);
     // Transparent canvas margins need no blending; retain the shared byte-exact compositor.
     for (let y = box.y0; y < box.y1; y++) {
       const start = (y * compiled.w + box.x0) * 4,
@@ -305,7 +306,7 @@ export function bakePlan(
   const samples = sampleTimes(scene, { frameCount, fps }),
     planes = mode === 'objects' ? objects.length + (includeBackground ? 1 : 0) : 1,
     last = replace ? scene.bakes.at(-1) : null;
-  if (!scene.objects.length) throw Error('请先创建动画对象');
+  if (!scene.objects.length && !scene.lights?.length) throw Error('请先创建动画对象或光源');
   if (
     replace &&
     (!last ||
@@ -468,6 +469,7 @@ export async function bakeScene(
       }
       for (const o of plan.objects) {
         const pixels = rasterObject(compiled, o, sample.time);
+        applyLights(pixels, project.w, project.h, scene, sample.time, o.id);
         applyLights(pixels, project.w, project.h, scene, sample.time);
         store(indices[offset++], pixels);
       }

@@ -16,10 +16,10 @@ export function virtualList(
     job = 0;
     if (stopped || !list.isConnected || list.hidden) return;
     const top = list.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
-    const first = Math.max(0, Math.floor(-top / height) - overscan);
+    const first = Math.max(0, Math.min(items.length - 1, Math.floor(-top / height) - overscan));
     const last = Math.min(
       items.length,
-      Math.ceil((scroller.clientHeight - top) / height) + overscan,
+      Math.max(first + 1, Math.ceil((scroller.clientHeight - top) / height) + overscan),
     );
     for (const [i, row] of rows) {
       if ((i < first || i >= last) && !row.classList.contains('item-engaged')) {
@@ -49,11 +49,16 @@ export function virtualList(
   const resize = new ResizeObserver(schedule);
   resize.observe(scroller);
   resize.observe(list);
+  // A list can be rebuilt while its options page is visible. Revealing it must
+  // mount its rows even if the surrounding floating panel did not change size.
+  const visibility = new MutationObserver(schedule);
+  visibility.observe(list, { attributes: true, attributeFilter: ['hidden'] });
   render();
   return () => {
     stopped = true;
     cancelAnimationFrame(job);
     resize.disconnect();
+    visibility.disconnect();
     scroller.removeEventListener('scroll', schedule);
   };
 }

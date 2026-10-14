@@ -160,6 +160,11 @@ function animationEdits(p, args, activeFrame) {
       )
         throw Error('请先解锁动画对象');
       if (op.action === 'delete') {
+        for (const light of scene.lights || [])
+          if (light.targets?.includes(o.id)) {
+            light.targets = light.targets.filter((id) => id !== o.id);
+            if (!light.targets.length) light.enabled = false;
+          }
         scene.objects.splice(scene.objects.indexOf(o), 1);
         continue;
       }

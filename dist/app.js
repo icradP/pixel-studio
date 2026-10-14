@@ -7,6 +7,7 @@ import { canvasPoint } from './camera.js';
 import { LIMITS, projectUsage, mebibytes } from './limits.js';
 import { installControls, updateRanges } from './controls.js';
 import { openProjectStore } from './project-store.js';
+import { createSavePreparation } from './background-save.js';
 import { createHistory } from './history.js';
 import { createEditorIntegration } from './editor-integration.js';
 import { createRenderScheduler } from './render-scheduler.js';
@@ -19,7 +20,7 @@ import {
 } from './brushes.js';
 import { createToolBrushes } from './tool-brushes.js';
 import { copySelectionLayer } from './selection-layer.js';
-import { duplicateLayer, reorderBeside } from './layer-actions.js';
+import { duplicateLayer, dropLayer, mergeLayers } from './layer-actions.js';
 import { itemGestures } from './item-gestures.js';
 import { virtualList } from './virtual-list.js';
 import { createLayerPreviewCache } from './layer-preview.js';
@@ -488,7 +489,6 @@ function redo() {
 }
 let changedFrames = null;
 function changed(affected = null, sceneOnly = false) {
-  if (project.storage === 'packed' && !sceneOnly) project = compactProject(project);
   if (!sceneOnly) artRevision++;
   else affected = [];
   const previous = id + ':' + dirtyVersion;
@@ -502,7 +502,15 @@ function changed(affected = null, sceneOnly = false) {
   render();
   refresh();
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => saveCurrent(), 650);
+  saveTimer = setTimeout(autoSave, 800);
+}
+function autoSave() {
+  // Never snapshot/compress between samples of an active Pencil or touch gesture.
+  if (stroke || fingers.active || penActive || procedural?.busy) {
+    saveTimer = setTimeout(autoSave, 250);
+    return;
+  }
+  void saveCurrent();
 }
 const checkedCanvasSizes = new Set();
 function checkCanvasSupport(w, h) {
@@ -650,7 +658,7 @@ function draw() {
     paintBuffer(buffer, procedural.pixels());
     drawPreview(buffer, true);
     previewSource = buffer;
-  } else if (stroke || selectionUI?.preview) {
+  } else if ((stroke?.before && !stroke.picking) || selectionUI?.preview) {
     paintBuffer(buffer, composite(renderProject(), frame));
     drawPreview(buffer, true);
     previewSource = buffer;
@@ -1599,7 +1607,7 @@ function finishStroke(cancel = false) {
 function sampleHeldColor(e) {
   const p = position(e);
   if (p.x < 0 || p.y < 0 || p.x >= project.w || p.y >= project.h) return;
-  const pixels = composite(stroke?.before || project, frame),
+  const pixels = (stroke.pickPixels ||= composite(stroke.before || project, frame)),
     offset = (p.y * project.w + p.x) * 4;
   if (!pixels[offset + 3]) return;
   color =
@@ -1612,7 +1620,7 @@ function sampleHeldColor(e) {
   chip.style.background = color;
   chip.style.left = e.clientX + 'px';
   chip.style.top = e.clientY + 'px';
-  refresh();
+  $$('.color-dot').forEach((dot) => (dot.style.background = color));
 }
 function armHold(e) {
   clearTimeout(holdTimer);
@@ -1633,7 +1641,7 @@ function armHold(e) {
   };
   holdTimer = setTimeout(() => {
     if (stroke !== current || current.hold.moved) return;
-    if (current.before) project = clone(current.before);
+    if (current.before) project = current.before;
     current.picking = true;
     sampleHeldColor(current.hold.event);
     render();
@@ -2242,7 +2250,8 @@ async function expansionPanel() {
 function panelContext() {
   return [id, dirtyVersion, frame, layer].join(':');
 }
-let layerSolo = null;
+let layerSolo = null,
+  suppressVisibilityClick = 0;
 const layerPreviews = createLayerPreviewCache();
 const layerPreviewJobs = new Set();
 let disposeLayerList = () => {};
@@ -2284,6 +2293,7 @@ function layersPanel() {
     row.className = 'layer' + (i === layer ? ' active' : '');
     row.style.marginLeft = (l.level || 0) * 10 + 'px';
     row.dataset.dragKey = i;
+    if (l.group) row.dataset.dropGroup = 'true';
     row.innerHTML = `<div class="layer-swipe-actions"><button data-layer-lock>${l.locked ? '解锁' : '锁定'}</button><button data-layer-copy>复制</button><button data-layer-delete class="destructive">删除</button></div><div class="layer-face">${l.group ? `<button class="layer-fold" aria-label="${l.collapsed ? '展开' : '折叠'}图层组 ${esc(l.name)}">${l.collapsed ? '▸' : '▾'}</button>` : ''}<button class="layer-select" data-item-touch aria-pressed="${i === layer}" aria-label="选择图层 ${esc(l.name)}"><span>${esc(l.name)}<small>${l.group ? '图层组' : l.clipping ? '剪贴图层' : '普通'}${l.mask ? ' · 遮罩' : ''}${l.alphaLock ? ' · 锁透明' : ''}${layerLocked(project, i) ? ' · 已锁定' : ''}</small></span></button><button class="layer-blend" aria-label="图层 ${esc(l.name)} 不透明度">${l.blend ? BLEND_MODES[l.blend].slice(0, 2) : Math.round((l.opacity / 255) * 100) === 100 ? 'N' : Math.round((l.opacity / 255) * 100) + '%'}</button><button class="visibility" role="checkbox" aria-checked="${l.visible}" aria-label="${l.visible ? '隐藏' : '显示'}图层 ${esc(l.name)}">${l.visible ? '☑' : '□'}</button></div>`;
     if (!l.group) {
       const t = document.createElement('canvas');
@@ -2303,13 +2313,16 @@ function layersPanel() {
       layerPreviewJobs.add(job);
       row.querySelector('.layer-select').prepend(t);
     }
-    row.querySelector('.visibility').onclick = () =>
+    row.querySelector('.visibility').onclick = () => {
+      if (performance.now() < suppressVisibilityClick) return;
       run((p) => (p.layers[i].visible = !p.layers[i].visible));
+    };
     const visibility = row.querySelector('.visibility');
     let soloTimer;
     visibility.onpointerdown = (event) => {
       if (event.button !== 0) return;
       soloTimer = setTimeout(() => {
+        suppressVisibilityClick = performance.now() + 900;
         const restore =
           layerSolo?.id === id &&
           layerSolo.layers.every((item, k) => item === project.layers[k]) &&
@@ -2368,11 +2381,13 @@ function layersPanel() {
     };
     itemGestures(row, {
       scroller: c,
+      insertion: true,
       swipe: (direction) => {
         c.querySelectorAll('.layer.swiped').forEach((el) => el.classList.remove('swiped'));
         row.classList.toggle('swiped', direction === 'left');
       },
-      drop: (destination) => run((p) => (layer = reorderBeside(p, i, Number(destination)))),
+      drop: (destination, placement) =>
+        run((p) => (layer = dropLayer(p, i, Number(destination), placement))),
     });
     return row;
   };
@@ -2409,6 +2424,23 @@ function layersPanel() {
   c.scrollTop = previousScroll;
   $('#layer-options-close').onclick = () => showLayerOptions(false);
   $('#duplicate-layer').onclick = () => run((p) => (layer = duplicateLayer(p, layer)));
+  for (const [id, label, group] of [
+    ['merge-down', '向下合并', false],
+    ['merge-group', '合并图层组', true],
+  ]) {
+    const button = document.createElement('button');
+    button.id = id;
+    button.textContent = label;
+    button.disabled = group
+      ? !selected.group
+      : !project.layers.some((_, i) => i < layer && parentLayer(project, i) === parent);
+    button.onclick = () =>
+      run((p) => {
+        layer = mergeLayers(p, layer, group);
+        toast('已合并全部动画帧 · 可撤销');
+      });
+    c.querySelector('.layer-option-grid').append(button);
+  }
   $('#clear-layer').disabled = selected.group || layerLocked(project, layer);
   $('#clear-layer').onclick = () => run((p) => editCel(p.frames[frame], layer).fill(0));
   $('#lock-layer').onclick = () => run((p) => (p.layers[layer].locked = !p.layers[layer].locked));
@@ -2546,7 +2578,7 @@ function settingsPanel() {
     <section class="setting-group"><h3>画室</h3>
       <button id="settings-export" class="panel-wide">分享与导出 <span>项目 · 图片 · 动画 ›</span></button><button id="settings-plugins" class="panel-wide">插件工作台 <span>5 个扩展 · ›</span></button>
       <button id="install-help" class="panel-wide">添加到主屏幕 <span>全屏使用 · ›</span></button>
-      <button id="check-update" class="panel-wide">检查更新 <span>v0.16.1</span></button>
+      <button id="check-update" class="panel-wide">检查更新 <span>v0.17.0</span></button>
     </section>`;
   editorIntegration.settings(panelContent('settings'));
   document
@@ -2684,28 +2716,31 @@ function exportPanel() {
 function storeRecord(record) {
   return projectStore.put(record);
 }
+const prepareSave = createSavePreparation();
 function saveCurrent() {
-  const p = clone(stroke?.before || project),
+  const prepared = prepareSave(stroke?.before || project),
     key = id,
     v = dirtyVersion;
+  // The queue may still be writing an older version when preparation fails.
+  prepared.catch(() => {});
   saveQueue = saveQueue
     .catch(() => {})
     .then(async () => {
       try {
         if (!projectStore) throw Error('本地存储不可用');
-        const source = thumb(p, 0),
-          c = document.createElement('canvas'),
-          scale = Math.min(1, 256 / Math.max(p.w, p.h));
-        c.width = Math.max(1, Math.round(p.w * scale));
-        c.height = Math.max(1, Math.round(p.h * scale));
-        c.getContext('2d').imageSmoothingEnabled = false;
-        c.getContext('2d').drawImage(source, 0, 0, c.width, c.height);
+        const { project: p, width, height, data } = await prepared,
+          c = document.createElement('canvas');
+        c.width = width;
+        c.height = height;
+        c.getContext('2d').putImageData(new ImageData(data, width, height), 0, 0);
         const preview = c.toDataURL('image/png');
         await storeRecord({ id: key, project: p, preview, updated: Date.now() });
         try {
           localStorage.setItem('pixel-studio-current', key);
         } catch {}
         if (key === id && v === dirtyVersion) {
+          if (p.storage === 'packed' && !stroke && !procedural?.busy)
+            project = { ...project, frames: p.frames };
           savedVersion = v;
           $('#save-status').textContent = '已保存在此设备';
         }
