@@ -24,7 +24,7 @@ async function waitForTools(page) {
             .length,
       ),
     )
-    .toBe(15);
+    .toBe(18);
 }
 async function invoke(page, name, args = {}) {
   return page.evaluate(
@@ -38,6 +38,139 @@ async function invoke(page, name, args = {}) {
 async function state(page) {
   return invoke(page, 'get_document');
 }
+
+test('interface tools operate palettes, layer swipes, dialogs, strokes and chunked imports', async ({
+  page,
+}) => {
+  await load(page);
+  const ui = () => invoke(page, 'get_interface');
+  async function action(label, action = 'click', extra = {}) {
+    const s = await ui(),
+      target = s.controls.find((c) => c.label === label);
+    expect(target, label).toBeTruthy();
+    const result = await invoke(page, 'interface', {
+      expectedRevision: s.revision,
+      interfaceRevision: s.interfaceRevision,
+      target: target.ref,
+      action,
+      ...extra,
+    });
+    expect(result.isError, result.message).not.toBe(true);
+    return result;
+  }
+  await action('图层面板');
+  await expect(page.locator('#layer-list .layer')).toHaveCount(3);
+  await action('选择图层 雨点与倒影');
+  await expect(page.locator('#layer-options')).toBeHidden();
+  await action('选择图层 雨点与倒影', 'gesture', {
+    pointerType: 'touch',
+    points: [
+      { x: 0.1, y: 0.5 },
+      { x: 0.5, y: 0.5 },
+      { x: 0.9, y: 0.5 },
+    ],
+    durationMs: 100,
+  });
+  await expect(page.locator('.swiped-right [data-layer-merge-down]')).toBeVisible();
+  await action('向下合并');
+  await expect(page.locator('#layer-list .layer')).toHaveCount(2);
+  await action('关闭图层');
+  await action('重命名作品');
+  await expect(page.locator('#action-dialog')).toBeVisible();
+  let s = await ui();
+  const field = s.controls.find((c) => c.element === 'input' && c.type === 'text');
+  expect(
+    (
+      await invoke(page, 'interface', {
+        expectedRevision: s.revision,
+        interfaceRevision: s.interfaceRevision,
+        target: field.ref,
+        action: 'set',
+        value: 'MCP 界面测试',
+      })
+    ).isError,
+  ).not.toBe(true);
+  await action('保存名称');
+  await expect(page.locator('#project-name')).toHaveText('MCP 界面测试');
+  await page.evaluate(() => document.activeElement?.blur());
+  await action('像素画布', 'gesture', {
+    points: [
+      { x: 0.45, y: 0.45 },
+      { x: 0.5, y: 0.5 },
+    ],
+    durationMs: 80,
+  });
+  expect((await state(page)).history.canUndo).toBe(true);
+  s = await ui();
+  const file = s.controls.find((c) => c.label === 'file-input');
+  const { blank, serialize } = await import('../../dist/engine.js');
+  const bytes = Buffer.from(serialize(blank(12, 10, '分块导入'))),
+    begin = await invoke(page, 'upload_file', {
+      expectedRevision: s.revision,
+      action: 'begin',
+      target: file.ref,
+      filename: '分块导入.pixel',
+    });
+  expect(begin.isError, begin.message).not.toBe(true);
+  for (let i = 0; i < bytes.length; i += 256)
+    expect(
+      (
+        await invoke(page, 'upload_file', {
+          expectedRevision: s.revision,
+          action: 'append',
+          uploadId: begin.upload.id,
+          data: bytes.subarray(i, i + 256).toString('base64'),
+        })
+      ).isError,
+    ).not.toBe(true);
+  s = await ui();
+  expect(
+    (
+      await invoke(page, 'upload_file', {
+        expectedRevision: s.revision,
+        interfaceRevision: s.interfaceRevision,
+        action: 'finish',
+        uploadId: begin.upload.id,
+      })
+    ).isError,
+  ).not.toBe(true);
+  await expect(page.locator('#project-name')).toHaveText('分块导入');
+  expect((await state(page)).width).toBe(12);
+});
+
+test('interface rejects stale controls and preserves a field when its value is invalid', async ({
+  page,
+}) => {
+  await load(page);
+  const s = await invoke(page, 'get_interface'),
+    input = s.controls.find((c) => c.label === '快速调整笔刷大小');
+  await page.locator('[data-panel=layers]').click();
+  expect(
+    (
+      await invoke(page, 'interface', {
+        expectedRevision: s.revision,
+        interfaceRevision: s.interfaceRevision,
+        target: input.ref,
+        action: 'set',
+        value: '5',
+      })
+    ).code,
+  ).toBe('STALE_INTERFACE');
+  const latest = await invoke(page, 'get_interface'),
+    speed = latest.controls.find((c) => c.label === '整体预览倍速');
+  expect(
+    (
+      await invoke(page, 'interface', {
+        expectedRevision: latest.revision,
+        interfaceRevision: latest.interfaceRevision,
+        target: speed.ref,
+        action: 'set',
+        value: '100',
+      })
+    ).code,
+  ).toBe('INVALID_INPUT');
+  await expect(page.locator('#playback-speed')).toHaveValue('1');
+});
 async function call(page, name, args = {}) {
   return invoke(page, name, { expectedRevision: (await state(page)).revision, ...args });
 }
@@ -231,7 +364,7 @@ test('site tools can be disabled, persist off, and register again without duplic
 }) => {
   await load(page);
   await page.locator('[data-panel=settings]').click();
-  await expect(page.locator('#ai-tools-status')).toContainText('15 个工具');
+  await expect(page.locator('#ai-tools-status')).toContainText('18 个工具');
   await page.locator('#ai-tools-enabled').uncheck();
   await expect
     .poll(() => page.evaluate(async () => (await document.modelContext.getTools()).length))
@@ -243,7 +376,7 @@ test('site tools can be disabled, persist off, and register again without duplic
   await page.locator('#ai-tools-enabled').check();
   await expect
     .poll(() => page.evaluate(async () => (await document.modelContext.getTools()).length))
-    .toBe(15);
+    .toBe(18);
 });
 test('unsupported browsers keep normal editing and do not load the command engine', async ({
   page,

@@ -214,7 +214,7 @@ export function floatingPanel(
     };
     element.classList.add('window-dragging');
     element.style.willChange = 'transform';
-    titleHandle.setPointerCapture(event.pointerId);
+    if (event.isTrusted) titleHandle.setPointerCapture(event.pointerId);
   };
   titleHandle.onpointermove = (event) => {
     if (drag?.id !== event.pointerId) return;
@@ -268,7 +268,7 @@ export function floatingPanel(
           initialLeft: element.offsetLeft,
         };
         element.classList.add('window-resizing');
-        handle.setPointerCapture(event.pointerId);
+        if (event.isTrusted) handle.setPointerCapture(event.pointerId);
       };
       handle.onpointermove = (event) => {
         if (resizing?.id !== event.pointerId) return;

@@ -13,7 +13,7 @@ export function keyPosition(keys, time, fallback) {
 export function putPosition(light, t, point) {
   const keys = (light.positionKeys ||= []),
     existing = keys.find((k) => Math.abs(k.t - t) < 1e-6);
-  if (existing) Object.assign(existing, point);
+  if (existing) Object.assign(existing, { x: point.x, y: point.y });
   else keys.push({ t, x: point.x, y: point.y });
   keys.sort((a, b) => a.t - b.t);
 }

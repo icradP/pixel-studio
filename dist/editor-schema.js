@@ -160,7 +160,17 @@ export const EDITOR_TOOLS = [
         operations: array(
           object(
             {
-              action: choice('add', 'update', 'duplicate', 'move', 'delete'),
+              action: choice(
+                'add',
+                'update',
+                'duplicate',
+                'move',
+                'delete',
+                'reorder',
+                'merge_up',
+                'merge_down',
+                'merge_group',
+              ),
               layer,
               parent: integer(-1, Number.MAX_SAFE_INTEGER),
               group: boolean,
@@ -169,6 +179,10 @@ export const EDITOR_TOOLS = [
               locked: boolean,
               alphaLock: boolean,
               opacity: integer(0, 255),
+              blend: integer(0, 18),
+              clipping: boolean,
+              target: layer,
+              placement: choice('above', 'below', 'inside'),
             },
             ['action'],
           ),

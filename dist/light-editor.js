@@ -1,13 +1,16 @@
 import { lightState } from './scene-effects.js';
 import { putPosition, translateLight } from './light-model.js';
 import { setTransformKey, fitPath } from './procedural-path.js';
+import { createRenderScheduler } from './render-scheduler.js';
 
 export function createLightEditor(host) {
   let gesture = null,
     mode = 'move',
-    animate = false;
+    animate = false,
+    latest = null;
   const current = () => host.scene()?.lights?.find((l) => l.id === host.selected());
-  return {
+  const job = createRenderScheduler(() => editor.update(latest));
+  const editor = {
     get active() {
       return !!gesture;
     },
@@ -31,7 +34,21 @@ export function createLightEditor(host) {
       let light = selected,
         kind = mode;
       const near = (q) => Math.hypot(q.x - p.x, q.y - p.y) < 18 / scale;
-      if (selected && ['area', 'path'].includes(mode)) {
+      let node = -1,
+        handle = null;
+      if (selected && mode === 'nodes') {
+        for (let i = 0; i < (selected.path || []).length; i++) {
+          const n = selected.path[i];
+          for (const h of ['point', 'in', 'out'])
+            if (near(h === 'point' ? n : n[h])) {
+              node = i;
+              handle = h;
+              break;
+            }
+          if (node >= 0) break;
+        }
+        if (node < 0) return false;
+      } else if (selected && ['area', 'path'].includes(mode)) {
         // Explicit canvas drawing modes start anywhere, not just on a handle.
       } else {
         const state = selected && lightState(selected, time, s.duration);
@@ -56,12 +73,18 @@ export function createLightEditor(host) {
         start: p,
         light: light.id,
         kind,
+        node,
+        handle,
         raw: [p],
         state: lightState(light, time, s.duration),
       };
       return true;
     },
     move(p) {
+      latest = p;
+      job.request();
+    },
+    update(p) {
       if (!gesture) return;
       const g = gesture,
         next = structuredClone(g.before),
@@ -69,7 +92,18 @@ export function createLightEditor(host) {
         dx = p.x - g.start.x,
         dy = p.y - g.start.y,
         time = host.time();
-      if (g.kind === 'move') {
+      if (g.kind === 'nodes') {
+        const n = l.path[g.node];
+        if (g.handle === 'point') {
+          n.x += dx;
+          n.y += dy;
+          for (const h of ['in', 'out']) {
+            n[h].x += dx;
+            n[h].y += dy;
+          }
+        } else n[g.handle] = { x: p.x, y: p.y };
+        delete l.positionKeys;
+      } else if (g.kind === 'move') {
         if (animate) {
           if (!l.positionKeys?.length) putPosition(l, 0, lightState(l, 0, next.duration));
           putPosition(l, time, { x: g.state.x + dx, y: g.state.y + dy });
@@ -106,8 +140,10 @@ export function createLightEditor(host) {
     },
     end(cancel = false) {
       if (!gesture) return false;
+      if (cancel) job.cancel();
+      else job.flush();
       gesture = null;
-      mode = 'move';
+      if (mode !== 'nodes') mode = 'move';
       host.commit(cancel);
       return true;
     },
@@ -163,8 +199,20 @@ export function createLightEditor(host) {
         });
         ctx.stroke();
         for (const p of path) ctx.fillRect(p.x - 3 / scale, p.y - 3 / scale, 6 / scale, 6 / scale);
+        if (mode === 'nodes')
+          for (const p of l.path || [])
+            for (const h of ['in', 'out']) {
+              ctx.beginPath();
+              ctx.moveTo(p.x, p.y);
+              ctx.lineTo(p[h].x, p[h].y);
+              ctx.stroke();
+              ctx.beginPath();
+              ctx.arc(p[h].x, p[h].y, 4 / scale, 0, 2 * Math.PI);
+              ctx.stroke();
+            }
       }
       ctx.restore();
     },
   };
+  return editor;
 }

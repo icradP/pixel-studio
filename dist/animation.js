@@ -143,7 +143,7 @@ export function createTimeline(host) {
     if (!detailed) return;
     host.stop();
     resizing = { y: e.clientY, height: timeline.getBoundingClientRect().height };
-    grip.setPointerCapture(e.pointerId);
+    if (e.isTrusted) grip.setPointerCapture(e.pointerId);
     document.body.classList.add('timeline-resizing');
     e.preventDefault();
   };

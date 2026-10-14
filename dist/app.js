@@ -20,7 +20,7 @@ import {
 } from './brushes.js';
 import { createToolBrushes } from './tool-brushes.js';
 import { copySelectionLayer } from './selection-layer.js';
-import { duplicateLayer, dropLayer, mergeLayers } from './layer-actions.js';
+import { duplicateLayer, dropLayer, mergeLayers, mergeUp } from './layer-actions.js';
 import { itemGestures } from './item-gestures.js';
 import { virtualList } from './virtual-list.js';
 import { createLayerPreviewCache } from './layer-preview.js';
@@ -198,8 +198,10 @@ let camera = { scale: 4, angle: 0, x: 0, y: 0 },
   customMask = Array.from({ length: 64 }, (_, i) =>
     i === 27 || i === 28 || i === 35 || i === 36 ? 1 : 0,
   );
+let multipleWindows = false;
 try {
   const settings = JSON.parse(localStorage.getItem('pixel-studio-settings') || '{}');
+  multipleWindows = settings.multipleWindows === true;
   penOnly = settings.inputVersion === 2 ? !!settings.penOnly : true;
   displayMode =
     settings.displayVersion === 2 && ['auto', 'smooth', 'pixel'].includes(settings.displayMode)
@@ -407,6 +409,7 @@ function settingsSave() {
         inputVersion: 2,
         displayVersion: 2,
         playbackSpeed,
+        multipleWindows,
         penOnly,
         pressure,
         shapeHoldMs,
@@ -1786,7 +1789,7 @@ view.addEventListener('pointerdown', (e) => {
     pointers.set(e.pointerId, { id: e.pointerId, x: e.clientX, y: e.clientY });
     fingers.update([...pointers.values()]);
     try {
-      view.setPointerCapture(e.pointerId);
+      if (e.isTrusted) view.setPointerCapture(e.pointerId);
     } catch {}
     return;
   }
@@ -1797,7 +1800,7 @@ view.addEventListener('pointerdown', (e) => {
     penActive = true;
   }
   try {
-    view.setPointerCapture(e.pointerId);
+    if (e.isTrusted) view.setPointerCapture(e.pointerId);
   } catch {}
   beginStroke(e);
 });
@@ -1823,8 +1826,19 @@ function endPointer(e, cancel = false) {
 view.addEventListener('pointerup', (e) => endPointer(e));
 view.addEventListener('pointercancel', (e) => endPointer(e, true));
 view.addEventListener('lostpointercapture', (e) => {
+  const wasPen = stroke?.id === e.pointerId && stroke?.type === 'pen';
   if (stroke?.id === e.pointerId) finishStroke(true);
-  if (e.pointerType === 'pen') penActive = false;
+  if (e.pointerType === 'pen' || wasPen) penActive = false;
+});
+function cancelCanvasInput() {
+  if (stroke) finishStroke(true);
+  penActive = false;
+  pointers.clear();
+  fingers.update([], { cancel: true });
+}
+window.addEventListener('blur', cancelCanvasInput);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) cancelCanvasInput();
 });
 view.addEventListener('contextmenu', (e) => e.preventDefault());
 view.addEventListener(
@@ -1849,7 +1863,7 @@ $('#float-drag').onpointerdown = (e) => {
   const r = $('#floatbar').getBoundingClientRect(),
     s = stage.getBoundingClientRect();
   floatDrag = { x: e.clientX, y: e.clientY, left: r.left - s.left, top: r.top - s.top };
-  e.target.setPointerCapture(e.pointerId);
+  if (e.isTrusted) e.target.setPointerCapture(e.pointerId);
 };
 $('#float-drag').onpointermove = (e) => {
   if (!floatDrag) return;
@@ -1962,12 +1976,18 @@ for (const input of [$('#side-size'), $('#side-opacity')])
 const primaryPanels = ['brush', 'layers', 'color', 'settings', 'tools', 'export'];
 let suppressPaletteTouch = 0;
 function closePrimaryPanels(except) {
+  if (multipleWindows) return;
   for (const type of primaryPanels) if (type !== except) toolWindows.close(type);
 }
 document.addEventListener(
   'pointerdown',
   (event) => {
-    if (event.target !== view || !primaryPanels.some((type) => toolWindows.has(type))) return;
+    if (
+      multipleWindows ||
+      event.target !== view ||
+      !primaryPanels.some((type) => toolWindows.has(type))
+    )
+      return;
     closePrimaryPanels();
     suppressPaletteTouch = event.pointerType === 'touch' ? performance.now() + 350 : 0;
     event.preventDefault();
@@ -2270,7 +2290,7 @@ function layersPanel() {
     selected = project.layers[layer],
     parent = parentLayer(project, layer),
     end = subtreeEnd(project, layer);
-  c.innerHTML = `<div class="layers-toolbar"><span>${project.layers.length} 图层</span><button id="add-group" aria-label="新建图层组">新建组</button><button id="add-layer" aria-label="新建图层">＋</button></div><div id="layer-list"></div><p class="layers-gesture-hint">轻点选择 · 再点显示选项 · 左滑快捷操作 · 按住拖动排序</p><section id="layer-options" hidden aria-label="图层选项"><div class="layer-options-head"><strong>${esc(selected.name)}</strong><button id="layer-options-close" aria-label="关闭图层选项">×</button></div><label>不透明度 <output class="row-value" id="opacity-value">${Math.round((selected.opacity / 255) * 100)}%</output><input id="opacity" aria-label="图层不透明度" type="range" min="0" max="255" value="${selected.opacity}"></label><div class="layer-option-grid"><button id="rename-layer">重命名</button><button id="layer-outline">描边</button><button id="duplicate-layer">复制</button><button id="lock-layer">${selected.locked ? '解锁' : '锁定'}</button><button id="clear-layer">清空当前帧</button><button id="layer-up">上移</button><button id="layer-down">下移</button><button id="group-layer">编组</button><button id="ungroup-layer">解散组</button><button id="delete-layer" class="danger">删除图层</button></div><details><summary>移至图层组</summary><label>目标位置<select id="layer-parent"><option value="-1">画布根目录</option>${project.layers.map((l, i) => (l.group && (i < layer || i >= end) ? `<option value="${i}">${esc(l.name)}</option>` : '')).join('')}</select></label><button id="move-to-group" class="panel-wide">移入所选位置</button></details>${selected.group && selected.isolated === false ? '<p class="help">旧版 ASE 直通组保持原作合成方式，组不透明度不可单独修改。</p>' : ''}</section>`;
+  c.innerHTML = `<div class="layers-toolbar"><span>${project.layers.length} 图层</span><button id="add-group" aria-label="新建图层组">新建组</button><button id="add-layer" aria-label="新建图层">＋</button></div><div id="layer-list"></div><p class="layers-gesture-hint">轻点选择 · N 打开属性 · 右滑合并 · 左滑快捷操作 · 按住拖动排序</p><section id="layer-options" hidden aria-label="图层选项"><div class="layer-options-head"><strong>${esc(selected.name)}</strong><button id="layer-options-close" aria-label="关闭图层选项">×</button></div><label>不透明度 <output class="row-value" id="opacity-value">${Math.round((selected.opacity / 255) * 100)}%</output><input id="opacity" aria-label="图层不透明度" type="range" min="0" max="255" value="${selected.opacity}"></label><div class="layer-option-grid"><button id="rename-layer">重命名</button><button id="layer-outline">描边</button><button id="duplicate-layer">复制</button><button id="lock-layer">${selected.locked ? '解锁' : '锁定'}</button><button id="clear-layer">清空当前帧</button><button id="layer-up">上移</button><button id="layer-down">下移</button><button id="group-layer">编组</button><button id="ungroup-layer">解散组</button><button id="delete-layer" class="danger">删除图层</button></div><details><summary>移至图层组</summary><label>目标位置<select id="layer-parent"><option value="-1">画布根目录</option>${project.layers.map((l, i) => (l.group && (i < layer || i >= end) ? `<option value="${i}">${esc(l.name)}</option>` : '')).join('')}</select></label><button id="move-to-group" class="panel-wide">移入所选位置</button></details>${selected.group && selected.isolated === false ? '<p class="help">旧版 ASE 直通组保持原作合成方式，组不透明度不可单独修改。</p>' : ''}</section>`;
   function showLayerOptions(open, restore = false) {
     if (!restore && open) c.dataset.listScroll = String(c.scrollTop);
     $('#layer-options').hidden = !open;
@@ -2294,7 +2314,7 @@ function layersPanel() {
     row.style.marginLeft = (l.level || 0) * 10 + 'px';
     row.dataset.dragKey = i;
     if (l.group) row.dataset.dropGroup = 'true';
-    row.innerHTML = `<div class="layer-swipe-actions"><button data-layer-lock>${l.locked ? '解锁' : '锁定'}</button><button data-layer-copy>复制</button><button data-layer-delete class="destructive">删除</button></div><div class="layer-face">${l.group ? `<button class="layer-fold" aria-label="${l.collapsed ? '展开' : '折叠'}图层组 ${esc(l.name)}">${l.collapsed ? '▸' : '▾'}</button>` : ''}<button class="layer-select" data-item-touch aria-pressed="${i === layer}" aria-label="选择图层 ${esc(l.name)}"><span>${esc(l.name)}<small>${l.group ? '图层组' : l.clipping ? '剪贴图层' : '普通'}${l.mask ? ' · 遮罩' : ''}${l.alphaLock ? ' · 锁透明' : ''}${layerLocked(project, i) ? ' · 已锁定' : ''}</small></span></button><button class="layer-blend" aria-label="图层 ${esc(l.name)} 不透明度">${l.blend ? BLEND_MODES[l.blend].slice(0, 2) : Math.round((l.opacity / 255) * 100) === 100 ? 'N' : Math.round((l.opacity / 255) * 100) + '%'}</button><button class="visibility" role="checkbox" aria-checked="${l.visible}" aria-label="${l.visible ? '隐藏' : '显示'}图层 ${esc(l.name)}">${l.visible ? '☑' : '□'}</button></div>`;
+    row.innerHTML = `<div class="layer-merge-actions"><button data-layer-merge-up>向上合并</button><button data-layer-merge-down>向下合并</button></div><div class="layer-swipe-actions"><button data-layer-lock>${l.locked ? '解锁' : '锁定'}</button><button data-layer-copy>复制</button><button data-layer-delete class="destructive">删除</button></div><div class="layer-face">${l.group ? `<button class="layer-fold" aria-label="${l.collapsed ? '展开' : '折叠'}图层组 ${esc(l.name)}">${l.collapsed ? '▸' : '▾'}</button>` : ''}<button class="layer-select" data-item-touch aria-pressed="${i === layer}" aria-label="选择图层 ${esc(l.name)}"><span>${esc(l.name)}<small>${l.group ? '图层组' : l.clipping ? '剪贴图层' : '普通'}${l.mask ? ' · 遮罩' : ''}${l.alphaLock ? ' · 锁透明' : ''}${layerLocked(project, i) ? ' · 已锁定' : ''}</small></span></button><button class="layer-blend" aria-label="图层 ${esc(l.name)} 不透明度">${l.blend ? BLEND_MODES[l.blend].slice(0, 2) : Math.round((l.opacity / 255) * 100) === 100 ? 'N' : Math.round((l.opacity / 255) * 100) + '%'}</button><button class="visibility" role="checkbox" aria-checked="${l.visible}" aria-label="${l.visible ? '隐藏' : '显示'}图层 ${esc(l.name)}">${l.visible ? '☑' : '□'}</button></div>`;
     if (!l.group) {
       const t = document.createElement('canvas');
       t.width = t.height = 1;
@@ -2349,10 +2369,7 @@ function layersPanel() {
       row.querySelector('.layer-fold').onclick = () =>
         run((p) => (p.layers[i].collapsed = !p.layers[i].collapsed));
     const select = () => {
-      if (i === layer) {
-        showLayerOptions($('#layer-options').hidden);
-        return;
-      }
+      if (i === layer) return;
       stop();
       layer = i;
       selection = null;
@@ -2379,11 +2396,22 @@ function layersPanel() {
       }
       $('#delete-layer').click();
     };
+    row.querySelector('[data-layer-merge-up]').disabled = !project.layers.some(
+      (_, j) => j > i && parentLayer(project, j) === parentLayer(project, i),
+    );
+    row.querySelector('[data-layer-merge-down]').disabled = !project.layers.some(
+      (_, j) => j < i && parentLayer(project, j) === parentLayer(project, i),
+    );
+    row.querySelector('[data-layer-merge-up]').onclick = () => run((p) => (layer = mergeUp(p, i)));
+    row.querySelector('[data-layer-merge-down]').onclick = () =>
+      run((p) => (layer = mergeLayers(p, i)));
     itemGestures(row, {
       scroller: c,
+      rightSwipe: true,
       insertion: true,
       swipe: (direction) => {
-        c.querySelectorAll('.layer.swiped').forEach((el) => el.classList.remove('swiped'));
+        c.querySelectorAll('.layer').forEach((el) => el.classList.remove('swiped', 'swiped-right'));
+        row.classList.toggle('swiped-right', direction === 'right');
         row.classList.toggle('swiped', direction === 'left');
       },
       drop: (destination, placement) =>
@@ -2426,6 +2454,7 @@ function layersPanel() {
   $('#duplicate-layer').onclick = () => run((p) => (layer = duplicateLayer(p, layer)));
   for (const [id, label, group] of [
     ['merge-down', '向下合并', false],
+    ['merge-up', '向上合并', false],
     ['merge-group', '合并图层组', true],
   ]) {
     const button = document.createElement('button');
@@ -2433,10 +2462,13 @@ function layersPanel() {
     button.textContent = label;
     button.disabled = group
       ? !selected.group
-      : !project.layers.some((_, i) => i < layer && parentLayer(project, i) === parent);
+      : !project.layers.some(
+          (_, i) =>
+            (id === 'merge-up' ? i > layer : i < layer) && parentLayer(project, i) === parent,
+        );
     button.onclick = () =>
       run((p) => {
-        layer = mergeLayers(p, layer, group);
+        layer = id === 'merge-up' ? mergeUp(p, layer) : mergeLayers(p, layer, group);
         toast('已合并全部动画帧 · 可撤销');
       });
     c.querySelector('.layer-option-grid').append(button);
@@ -2566,6 +2598,7 @@ function settingsPanel() {
       <details class="settings-help"><summary>手势与形状识别</summary><p>双指拖动、缩放与旋转。双指轻点撤销，三指轻点重做。长按取色；画完不抬笔停留，可识别形状；继续拖动时，起笔像素保持固定，可调整大小与方向。识别时间越短，越快进入调整。</p><p>Pencil 的硬件双击与挤压尚未接入。</p></details>
     </section>
     <section class="setting-group"><h3>画布显示</h3>
+      <label class="switch"><span>多窗口工作区<small>色板、图层与笔刷可同时打开；画布操作保留窗口</small></span><input id="multiple-windows" type="checkbox" ${multipleWindows ? 'checked' : ''}></label>
       <div class="segment display-modes"><button data-display="auto">智能清晰</button><button data-display="smooth">柔和</button><button data-display="pixel">原始像素</button></div>
       <details class="settings-help"><summary>显示模式说明</summary><p>智能清晰保留像素内部，只平滑缩放或旋转后的边缘。显示模式不会改变作品或导出像素。</p></details>
       <div class="segment mirror-controls"><button data-mirror="flipX" aria-pressed="${!!camera.flipX}">水平镜像</button><button data-mirror="flipY" aria-pressed="${!!camera.flipY}">垂直镜像</button></div><p class="help">镜像只改变查看方向，作品与导出保持原样。</p><button id="settings-reference" class="panel-wide">参考小窗 <span>画布预览 · 图片 · ＋</span></button><button id="settings-expand" class="panel-wide">扩展画布 <span>四方向 · ›</span></button>
@@ -2592,6 +2625,11 @@ function settingsPanel() {
     shapeHoldMs = shapeDelay(Number(e.target.value));
     $('#shape-delay-value').value = (shapeHoldMs / 1000).toFixed(2) + ' 秒';
     settingsSave();
+  };
+  $('#multiple-windows').onchange = (e) => {
+    multipleWindows = e.target.checked;
+    settingsSave();
+    if (!multipleWindows) closePrimaryPanels('settings');
   };
   $('#finger-setting').onchange = (e) => {
     penOnly = !e.target.checked;
@@ -3220,6 +3258,12 @@ const editorIntegration = createEditorIntegration({
     selection,
     history,
     revision: contextToken(),
+    inputBusy:
+      document.body.inert || switchingProject
+        ? '作品正在加载'
+        : stroke || procedural?.busy
+          ? '请先完成当前画布操作'
+          : null,
     busy:
       document.body.inert || switchingProject
         ? '作品正在加载，请稍后重试'

@@ -1,5 +1,28 @@
 export const LINEAR_CURVE = [0, 0.25, 0.5, 0.75, 1];
+export function pressureKeys(curve = LINEAR_CURVE) {
+  return typeof curve[0] === 'number'
+    ? curve.map((v, i) => ({ t: i / (curve.length - 1), v }))
+    : curve.map((k) => ({ ...k }));
+}
 export function normalizeCurve(curve) {
+  if (
+    Array.isArray(curve) &&
+    curve.length >= 2 &&
+    curve.length <= 128 &&
+    typeof curve[0] === 'object'
+  ) {
+    const keys = curve
+        .filter((k) => Number.isFinite(k?.t) && Number.isFinite(k?.v) && k.t >= 0 && k.t <= 1)
+        .sort((a, b) => a.t - b.t),
+      out = [];
+    for (const k of keys)
+      if (!out.length || k.t - out.at(-1).t > 0.00001)
+        out.push({ t: k.t, v: Math.max(out.at(-1)?.v || 0, Math.min(1, k.v)) });
+    if (out.length < 2 || out[0].t !== 0 || out.at(-1).t !== 1) return [...LINEAR_CURVE];
+    out[0].v = 0;
+    out.at(-1).v = 1;
+    return out;
+  }
   if (!Array.isArray(curve) || curve.length !== 5) return [...LINEAR_CURVE];
   const out = [0];
   for (let i = 1; i < 4; i++)
@@ -8,6 +31,16 @@ export function normalizeCurve(curve) {
   return out;
 }
 export function pressureResponse(value, curve = LINEAR_CURVE) {
+  if (typeof curve[0] === 'object') {
+    const p = Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0.5));
+    for (let i = 1; i < curve.length; i++)
+      if (p <= curve[i].t) {
+        const a = curve[i - 1],
+          b = curve[i];
+        return a.v + ((b.v - a.v) * (p - a.t)) / (b.t - a.t);
+      }
+    return curve.at(-1).v;
+  }
   const p = Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0.5)),
     i = Math.min(3, Math.floor(p * 4)),
     t = p * 4 - i;

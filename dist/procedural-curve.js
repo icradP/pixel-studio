@@ -1,15 +1,23 @@
 import { clamp } from './procedural-model.js';
 import { CURVES } from './procedural-path.js';
+import { insertCurveKey, subdivideCurve } from './node-editing.js';
 // The graph is normalized: horizontal time, vertical progress/strength. It never edits geometry.
 export function curveEditor(
   container,
   initial,
-  { commit, preview = () => {}, cancel = () => {}, label = '路径进度' },
+  {
+    commit,
+    preview = () => {},
+    cancel = () => {},
+    label = '路径进度',
+    toast = () => {},
+    monotonic = false,
+  },
 ) {
   let keys = structuredClone(initial),
     selected = 0,
     drag = null;
-  container.innerHTML = `<div class="scene-curve-presets"></div><svg class="scene-curve" viewBox="0 0 280 160" aria-label="${label}曲线：横轴时间，纵轴数值"><path class="scene-curve-grid" d="M20 12V140H264M20 76H264M142 12V140"/><path class="scene-curve-line"/><g></g><text x="244" y="156">时间</text><text x="20" y="10">${label}</text></svg><p class="help">拖动圆点调节；双击空白添加点。方向键微调选中的点。</p><div class="scene-two"><label>时间 %<input class="curve-time" type="number" min="0" max="100" step="1"></label><label>${label} %<input class="curve-value" type="number" min="0" max="100" step="1"></label></div><button class="curve-remove">删除此点</button>`;
+  container.innerHTML = `<div class="scene-curve-presets"></div><svg class="scene-curve" viewBox="0 0 280 160" aria-label="${label}曲线：横轴时间，纵轴数值"><path class="scene-curve-grid" d="M20 12V140H264M20 76H264M142 12V140"/><path class="scene-curve-line"/><g></g><text x="244" y="156">时间</text><text x="20" y="10">${label}</text></svg><p class="help">拖动圆点调节；双击空白添加点。方向键微调选中的点。</p><div class="scene-two"><label>时间 %<input class="curve-time" type="number" min="0" max="100" step="1"></label><label>${label} %<input class="curve-value" type="number" min="0" max="100" step="1"></label></div><div class="scene-two"><button class="curve-add">添加节点</button><button class="curve-remove">删除此点</button></div><label>批量节点间隔 / %<input class="curve-spacing" type="number" min="1" max="100" step="0.1" value="10"></label><button class="curve-batch">按间隔添加节点</button><p class="curve-status" role="status"></p>`;
   const q = (s) => container.querySelector(s),
     svg = q('svg'),
     group = q('g');
@@ -21,6 +29,7 @@ export function curveEditor(
     ['fall', '停留后下落'],
     ['return', '往返'],
   ]) {
+    if (monotonic && id === 'return') continue;
     const b = document.createElement('button');
     b.textContent = name;
     b.onclick = () => {
@@ -73,7 +82,13 @@ export function curveEditor(
           : selected === keys.length - 1
             ? 1
             : clamp(t, keys[selected - 1].t + 0.005, keys[selected + 1].t - 0.005),
-      v: clamp(v, 0, 1),
+      v: monotonic
+        ? selected === 0
+          ? 0
+          : selected === keys.length - 1
+            ? 1
+            : clamp(v, keys[selected - 1].v, keys[selected + 1].v)
+        : clamp(v, 0, 1),
     };
     render();
   }
@@ -82,9 +97,15 @@ export function curveEditor(
     if (i === undefined) return;
     selected = +i;
     drag = structuredClone(keys);
-    svg.setPointerCapture(e.pointerId);
+    if (e.isTrusted) svg.setPointerCapture(e.pointerId);
     e.preventDefault();
     render();
+  };
+  svg.onclick = (e) => {
+    if (e.target.dataset.key !== undefined) {
+      selected = +e.target.dataset.key;
+      render();
+    }
   };
   svg.onpointermove = (e) => {
     if (!drag) return;
@@ -108,6 +129,10 @@ export function curveEditor(
     if (e.target.dataset.key !== undefined || keys.length >= 128) return;
     const p = value(e);
     if (keys.some((k) => Math.abs(k.t - p.t) < 0.01)) return;
+    if (monotonic) {
+      const next = keys.findIndex((k) => k.t > p.t);
+      p.v = clamp(p.v, keys[next - 1]?.v || 0, keys[next]?.v ?? 1);
+    }
     keys.push(p);
     keys.sort((a, b) => a.t - b.t);
     selected = keys.indexOf(p);
@@ -140,6 +165,25 @@ export function curveEditor(
     commit(keys);
     render();
   };
+  const changeNodes = (fn) => {
+    try {
+      keys = fn();
+      selected = Math.min(selected, keys.length - 1);
+      commit(keys);
+      render();
+      q('.curve-status').textContent = `${keys.length} 个节点`;
+    } catch (e) {
+      q('.curve-status').textContent = e.message;
+      toast(e.message);
+    }
+  };
+  q('.curve-add').onclick = () =>
+    changeNodes(() => {
+      const i = Math.min(selected, keys.length - 2);
+      return insertCurveKey(keys, (keys[i].t + keys[i + 1].t) / 2);
+    });
+  q('.curve-batch').onclick = () =>
+    changeNodes(() => subdivideCurve(keys, +q('.curve-spacing').value / 100));
   render();
   return () => {
     svg.onpointercancel();

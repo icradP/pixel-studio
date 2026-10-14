@@ -3,7 +3,7 @@ import { reducedMotion } from './motion.js';
 // The lifted preview follows the pointer while the source keeps its list geometry.
 export function itemGestures(
   element,
-  { scroller, swipe, drop, holdDelay = 280, insertion = false },
+  { scroller, swipe, drop, holdDelay = 280, insertion = false, rightSwipe = false },
 ) {
   let state,
     timer,
@@ -86,7 +86,7 @@ export function itemGestures(
       }
     } else if (state.axis === 'x' && face()) {
       element.classList.add('item-swiping');
-      face().style.transform = `translate3d(${Math.max(-186, Math.min(0, state.swiped + state.px - state.x))}px,0,0)`;
+      face().style.transform = `translate3d(${Math.max(-186, Math.min(rightSwipe ? 156 : 0, state.swiped + state.px - state.x))}px,0,0)`;
     }
   }
   const request = () => {
@@ -121,10 +121,15 @@ export function itemGestures(
       lastY: event.clientY,
       drag: false,
       axis: null,
-      swiped: element.classList.contains('swiped') ? -186 : 0,
+      swiped: element.classList.contains('swiped')
+        ? -186
+        : element.classList.contains('swiped-right')
+          ? 156
+          : 0,
     };
     element.classList.add('item-engaged');
-    (event.target.closest('[data-item-touch]') || element).setPointerCapture(event.pointerId);
+    if (event.isTrusted)
+      (event.target.closest('[data-item-touch]') || element).setPointerCapture(event.pointerId);
     timer = setTimeout(() => {
       if (!state || state.axis || !drop || !element.isConnected) return;
       state.drag = true;

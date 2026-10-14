@@ -20,6 +20,8 @@ import {
   bakeScene,
 } from './procedural.js';
 import { fitPath, curveValue, setTransformKey, CURVES } from './procedural-path.js';
+import { pathNodePanel } from './path-node-panel.js';
+import { trackNodePanel } from './track-node-panel.js';
 import { curveEditor } from './procedural-curve.js';
 import { floatingPanel } from './floating.js';
 import { showDialog, hideDialog } from './dialogs.js';
@@ -297,7 +299,7 @@ export function createProceduralEditor(host) {
       x = e.clientX,
       edge = e.target.dataset.edge;
     draft = structuredClone(before);
-    element.setPointerCapture(e.pointerId);
+    if (e.isTrusted) element.setPointerCapture(e.pointerId);
     const finish = (cancel) => {
       timelineCancel = null;
       element.onpointermove =
@@ -376,12 +378,13 @@ export function createProceduralEditor(host) {
         e.preventDefault();
         pause();
         selected = o.id;
+        selectedLight = null;
         const r = lane.getBoundingClientRect(),
           at = (x) => snap(((x - r.left) / r.width) * s.duration),
           start = at(e.clientX);
         time = start;
         range = [start, Math.min(s.duration, start + 1 / s.fps)];
-        lane.setPointerCapture(e.pointerId);
+        if (e.isTrusted) lane.setPointerCapture(e.pointerId);
         const drawRange = () => {
           const el = row.querySelector('.scene-selected-range');
           el.style.left = (range[0] / s.duration) * 100 + '%';
@@ -512,7 +515,7 @@ export function createProceduralEditor(host) {
         onClose: () => {
           panelCleanup?.();
           panelCleanup = null;
-          if (!gesture && !timelineCancel) {
+          if (!gesture && !lightEditor.active && !timelineCancel) {
             draft = null;
             host.render();
           }
@@ -535,6 +538,9 @@ export function createProceduralEditor(host) {
     panelCleanup = null;
     const body = inspector.querySelector('.window-body'),
       top = body.scrollTop,
+      openDetails = [...body.querySelectorAll('details[open]')].map(
+        (d) => d.querySelector('summary')?.textContent,
+      ),
       s = scene(),
       o = object(),
       kind = panelState.kind;
@@ -584,6 +590,7 @@ export function createProceduralEditor(host) {
             const next = createObject(p, p.procedural, indices, mask, name);
             p.procedural.objects.push(next);
             selected = next.id;
+            selectedLight = null;
           });
           setMode('draw');
           openPanel('object');
@@ -604,6 +611,25 @@ export function createProceduralEditor(host) {
         .join(
           '',
         )}</div><div class="scene-two"><button id="scene-key-add">记录当前姿态</button><button id="scene-key-remove">删除此时刻关键帧</button></div><p class="help">预览位置 ${state.x.toFixed(1)}, ${state.y.toFixed(1)} · ${o.path.length} 个路径控制点</p><button id="scene-remove-object" class="danger panel-wide">移除动画对象</button>`;
+      pathNodePanel(body, o.path, {
+        commit: (path) => editObject((v) => (v.path = path)),
+        toast: host.toast,
+        editCanvas: () => {
+          setMode('edit');
+          float?.close();
+        },
+      });
+      trackNodePanel(body, o.tracks, {
+        duration: s.duration,
+        commit: (tracks) => editObject((v) => (v.tracks = tracks)),
+        toast: host.toast,
+        fields: [
+          ['rotation', '旋转', 0, -36000, 36000],
+          ['scaleX', '横向比例', 1, 0.05, 20],
+          ['scaleY', '纵向比例', 1, 0.05, 20],
+          ['opacity', '不透明度', 1, 0, 1],
+        ],
+      });
       $('#scene-rename').onchange = (e) =>
         editObject((v) => (v.name = e.target.value.trim().slice(0, 80) || v.name));
       on('#scene-solo', () => {
@@ -736,6 +762,9 @@ export function createProceduralEditor(host) {
           .forEach((point) => point.setAttribute('tabindex', '-1'));
       }
     }
+    body.querySelectorAll('details').forEach((d) => {
+      if (openDetails.includes(d.querySelector('summary')?.textContent)) d.open = true;
+    });
     body.scrollTop = top;
     float?.clamp();
   }
@@ -1498,7 +1527,7 @@ export function createProceduralEditor(host) {
         seek(time + (e.key === 'ArrowLeft' ? -1 : 1) / scene().fps);
         return true;
       }
-      if (e.key === 'Escape' && gesture) {
+      if (e.key === 'Escape' && (gesture || lightEditor.active)) {
         end(true);
         return true;
       }

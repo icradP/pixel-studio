@@ -114,7 +114,7 @@ test('canvas opacity, erase opacity and dismissing palettes preserve stroke and 
   expect(Object.values((await saved(page)).frames[0].cels[0])).toEqual(painted);
 });
 
-test('layers support repeat-tap options, swipe duplicate, drag reorder and undo across frames', async ({
+test('layers support N-button options, swipe duplicate, drag reorder and undo across frames', async ({
   page,
 }) => {
   await ready(page);
@@ -122,6 +122,8 @@ test('layers support repeat-tap options, swipe duplicate, drag reorder and undo 
   await page.locator('[data-panel="layers"]').click();
   await expect(page.locator('#layer-options')).toBeHidden();
   await page.locator('.layer-select').first().click();
+  await expect(page.locator('#layer-options')).toBeHidden();
+  await page.locator('.layer-blend').first().click();
   await expect(page.locator('#layer-options')).toBeVisible();
   await page.locator('#layer-options-close').click();
   await swipe(page, page.locator('.layer-select').first());
@@ -135,7 +137,7 @@ test('layers support repeat-tap options, swipe duplicate, drag reorder and undo 
   await page.mouse.move(source.x + 80, source.y + 30);
   await page.mouse.down();
   await page.waitForTimeout(420);
-  await page.mouse.move(target.x + 80, target.y + 30, { steps: 10 });
+  await page.mouse.move(target.x + 80, target.y + target.height - 5, { steps: 10 });
   await page.mouse.up();
   const moved = await saved(page);
   expect(moved.layers[0].name).toContain('副本');

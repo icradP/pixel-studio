@@ -61,6 +61,13 @@ export function dropLayer(p, index, target, placement = 'above') {
   return destination;
 }
 
+export function mergeUp(p, index) {
+  const parent = parentLayer(p, index),
+    next = p.layers.findIndex((_, i) => i > index && parentLayer(p, i) === parent);
+  if (next < 0) throw Error('上面没有可合并的同组图层');
+  return mergeLayers(p, next);
+}
+
 export function mergeLayers(p, index, group = false) {
   const selected = p.layers[index],
     parent = parentLayer(p, index);

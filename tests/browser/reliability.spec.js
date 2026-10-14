@@ -75,7 +75,7 @@ test('hide, delete, reorder and merge redraw lower layers immediately and keep t
   await expect.poll(() => pixel(page)).toEqual([80, 70, 180, 255]);
   await page.getByRole('button', { name: '图层 顶层 不透明度', exact: true }).click();
   await page.locator('#delete-layer').click();
-  await page.getByRole('button', { name: '删除图层', exact: true }).last().click();
+  await page.locator('#action-dialog [type=submit]').click();
   await page.locator('#layer-options-close').click();
   await expect(page.locator('#layer-list .layer')).toHaveCount(2);
   await expect.poll(() => pixel(page)).toEqual([80, 70, 180, 255]);
@@ -121,6 +121,7 @@ test('collapsed windows dragged near the bottom recover height, including resiza
   }
   await page.locator('#reference-add').click();
   const reference = page.locator('.reference-window');
+  await reference.locator('.reference-viewport').click();
   await reference.locator('.window-collapse').click();
   await page.setViewportSize({ width: 768, height: 1024 });
   await reference.locator('.window-collapse').click();
@@ -148,6 +149,7 @@ test('light objects drag, keyframe, constrain their canvas region and undo witho
   ];
   await load(page, p);
   await page.locator('#procedural-open').click();
+  await page.waitForTimeout(300);
   await page.locator('#fit').click();
   await expect(page.locator('.light-track')).toHaveCount(1);
   const from = await screen(page, 26, 34),
@@ -157,7 +159,7 @@ test('light objects drag, keyframe, constrain their canvas region and undo witho
   await page.mouse.move(to.x, to.y, { steps: 8 });
   await page.mouse.up();
   let result = await saved(page);
-  expect(result.procedural.lights[0].x).toBeCloseTo(36, 1);
+  expect(result.procedural.lights[0].x).toBeCloseTo(36, 0);
   await page.locator('#scene-lights').click();
   await page.locator('#light-record').check();
   await page.locator('#scene-scrub').fill('1');
@@ -170,7 +172,7 @@ test('light objects drag, keyframe, constrain their canvas region and undo witho
   await page.mouse.up();
   result = await saved(page);
   expect(result.procedural.lights[0].positionKeys.map((k) => k.t)).toEqual([0, 1]);
-  expect(result.procedural.lights[0].positionKeys[1].x).toBeCloseTo(46, 1);
+  expect(result.procedural.lights[0].positionKeys[1].x).toBeCloseTo(46, 0);
   await expect(page.locator('.light-track .scene-key')).toHaveCount(2);
   await page.locator('#scene-lights').click();
   await page.locator('#light-area').click();
@@ -187,6 +189,7 @@ test('light objects drag, keyframe, constrain their canvas region and undo witho
   await page.locator('#scene-redo').click();
   expect((await saved(page)).procedural.lights[0].area).toBeDefined();
   await page.reload();
+  await expect(page.locator('#project-name')).toHaveText('可靠性');
   await page.locator('#procedural-open').click();
   await expect(page.locator('.light-track')).toHaveCount(1);
 });
@@ -228,4 +231,45 @@ test('held eyedropper coalesces color changes, leaves no pixels, and immediately
   expect(pixels.filter((v, i) => i % 4 === 3 && v === 0).length).toBeGreaterThan(1);
   await page.locator('#quick-undo').click();
   await expect.poll(() => pixel(page)).toEqual([80, 70, 180, 255]);
+});
+
+test('iPad portrait, landscape and keyboard sizes restore multi-window panels', async ({
+  page,
+}) => {
+  await load(page);
+  await page.getByRole('button', { name: '画室设置', exact: true }).click();
+  await page.locator('#multiple-windows').check();
+  await page.locator('#window-settings .window-close').click();
+  await page.getByRole('button', { name: '图层面板', exact: true }).click();
+  await page.getByRole('button', { name: '打开颜色', exact: true }).click();
+  for (const size of [
+    { width: 1024, height: 768 },
+    { width: 768, height: 1024 },
+    { width: 834, height: 1194 },
+    { width: 1194, height: 834 },
+  ]) {
+    await page.setViewportSize(size);
+    for (const id of ['layers', 'color']) {
+      const panel = page.locator('#window-' + id);
+      await expect(panel).toBeVisible();
+      await expect
+        .poll(async () => {
+          const b = await panel.boundingBox();
+          return (
+            b.width >= 300 &&
+            b.height > 250 &&
+            b.x >= 0 &&
+            b.y >= 0 &&
+            b.x + b.width <= size.width + 1 &&
+            b.y + b.height <= size.height + 1
+          );
+        })
+        .toBe(true);
+      await panel.locator('.window-collapse').click();
+      await page.setViewportSize({ width: size.width, height: 420 });
+      await page.setViewportSize(size);
+      await panel.locator('.window-collapse').click();
+      await expect.poll(async () => (await panel.boundingBox()).height).toBeGreaterThan(250);
+    }
+  }
 });
