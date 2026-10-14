@@ -167,6 +167,21 @@ test('one stroke retains 90 frame nodes and recomposites only changed previews',
   await expect(page.locator('#project-name')).toHaveText('frames');
   await expect.poll(() => page.locator('#frames canvas[data-ready]').count()).toBeGreaterThan(1);
   expect(await page.locator('#frames canvas[data-ready]').count()).toBeLessThan(20);
+  // Wait for the current viewport's initial work before counting stroke work.
+  // Offscreen frames deliberately remain unrendered.
+  await expect
+    .poll(() =>
+      page.locator('#frames').evaluate((row) => {
+        const bounds = row.getBoundingClientRect();
+        return [...row.children]
+          .filter((button) => {
+            const r = button.getBoundingClientRect();
+            return r.right >= bounds.left - 96 && r.left <= bounds.right + 96;
+          })
+          .every((button) => button.querySelector('canvas').dataset.ready);
+      }),
+    )
+    .toBe(true);
   await page.evaluate(() => {
     window.testFrameNodes = [...document.querySelectorAll('#frames > button')];
     window.testPutCount = 0;
