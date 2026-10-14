@@ -74,6 +74,6 @@ export function getPerfectPixel({w,h,data},{grid=null,sampleMethod='majority',re
   const a=w/size[0],b=h/size[1],cell=Math.max(a/b,b/a)>1.5?Math.min(a,b):(a+b)/2;size=[Math.max(1,Math.round(w/cell)),Math.max(1,Math.round(h/cell))];
  }
  const xs=refineAxis(w,size[0],gx,refineIntensity,!!grid),ys=refineAxis(h,size[1],gy,refineIntensity,!!grid),ow=xs.length-1,oh=ys.length-1;
- if(ow>1024||oh>1024)throw Error('识别结果超过画室 1024 像素上限，请指定较小的手动尺寸。');
+ if(ow>1024||oh>1024)throw Error('识别结果超过网格分析的 1024 像素范围，请指定较小的手动尺寸。');
  return {w:ow,h:oh,data:reducePalette(sample(data,w,xs,ys,sampleMethod),colors),method,estimated:size};
 }

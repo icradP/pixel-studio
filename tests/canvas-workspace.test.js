@@ -15,8 +15,8 @@ test('1024 canvases preserve boundary pixels through project and Aseprite round 
   const result = await readAse(writeAse(p).buffer);
   assert.equal(result.project.w, 1024);
   assert.deepEqual(result.project.frames[0].cels[0], p.frames[0].cels[0]);
-  assert.equal(projectUsage(p).moreLayers, 6);
-  assert.equal(projectUsage(p).moreFrames, 6);
+  assert.equal(projectUsage(p).moreLayers, null);
+  assert.equal(projectUsage(p).moreFrames, 239);
   assert.throws(() => validate({ ...p, w: 1025 }));
 });
 test('proportional expansion anchors original pixels without resampling and validates capacity before allocation', () => {
@@ -46,13 +46,13 @@ test('proportional expansion anchors original pixels without resampling and vali
   assert.throws(
     () =>
       expansionSize(
-        { w: 1024, h: 1024, layers: [{}], frames: [{}] },
-        proportionalExpansion({ w: 1024, h: 1024 }, 125),
+        { w: 4096, h: 4096, layers: [{}], frames: [{}] },
+        proportionalExpansion({ w: 4096, h: 4096 }, 125),
       ),
-    /最大/,
+    /64 MiB/,
   );
   const many = { w: 512, h: 512, layers: Array(8), frames: [{}] };
-  assert.throws(() => expansionSize(many, proportionalExpansion(many, 200)), /800 万/);
+  assert.equal(expansionSize(many, proportionalExpansion(many, 400)).w, 2048);
 });
 test('mirrored and rotated view coordinates map back to exact artwork coordinates', () => {
   for (const flipX of [true, false])

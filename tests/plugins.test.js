@@ -170,7 +170,7 @@ test('long loop / capacity overflow fails before modifying the source', () => {
   const copy = clone(p);
   assert.throws(() => loopLayers(p, [17, 19]), /240/);
   assert.deepEqual(p, copy);
-  assert.throws(() => importAnimation(p, p, { start: 239, count: 2 }), /容量/);
+  assert.throws(() => importAnimation(p, p, { start: 239, count: 2 }), /240/);
 });
 test('normal lighting responds to direction, keeps alpha and respects specular mask', () => {
   const color = new Uint8ClampedArray([100, 80, 60, 128]),

@@ -60,14 +60,16 @@ test('each individual direction can expand independently', () => {
     );
   }
 });
-test('invalid dimensions and total-pixel overflow reject before touching existing cels', () => {
+test('invalid dimensions and editing-buffer overflow reject before touching existing cels', () => {
   const p = sample(),
     before = clone(p);
-  for (const sides of [{ left: -1 }, { top: 1.5 }, { right: NaN }, { bottom: 1023 }, {}])
+  for (const sides of [{ left: -1 }, { top: 1.5 }, { right: NaN }, { bottom: 10_000_000 }, {}])
     assert.throws(() => expandCanvas(p, sides));
   assert.deepEqual(p, before);
   const large = { w: 500, h: 500, layers: Array(32), frames: [{}] };
-  assert.throws(() => expansionSize(large, { left: 1 }), /800 万/);
+  assert.equal(expansionSize(large, { left: 1 }).w, 501);
+  assert.throws(() => expansionSize(large, { left: 40000 }), /64 MiB/);
+  assert.equal(expandCanvas(p, { right: 2048 }).w, 2051);
   assert.equal(expansionSize(p, { left: 1 }).bytes, 4 * 2 * 2 * 2 * 4);
 });
 test('canvas expansion undo and redo restore dimensions, frames, layers and pixels', () => {

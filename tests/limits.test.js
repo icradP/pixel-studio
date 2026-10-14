@@ -9,36 +9,19 @@ const project = (w, h, layers, frames) => ({
   frames: Array(frames),
 });
 
-test('capacity reports pixel bytes and the limiting layer/frame budget', () => {
+test('capacity reports actual storage without a fixed layer count cap', () => {
   const usage = projectUsage(project(512, 512, 3, 10));
   assert.equal(usage.pixels, 7_864_320);
   assert.equal(usage.bytes, 31_457_280);
-  assert.equal(usage.moreLayers, 0);
-  assert.equal(usage.moreFrames, 0);
-  assert.ok(usage.ratio > 0.98);
+  assert.equal(usage.moreLayers, null);
+  assert.equal(usage.moreFrames, 230);
+  assert.equal(usage.ratio, usage.bytes / LIMITS.projectBytes);
   assert.equal(mebibytes(usage.bytes), '30.0 MiB');
 });
-
-test('small canvases still respect layer and frame count limits', () => {
-  const usage = projectUsage(project(16, 16, 2, 4));
-  assert.equal(usage.moreLayers, LIMITS.layers - 2);
-  assert.equal(usage.moreFrames, LIMITS.frames - 4);
-  assert.equal(projectUsage(project(1, 1, 32, 1)).ratio, 1);
+test('frame and actual storage budgets are independent of layer count', () => {
+  assert.equal(LIMITS.layers, undefined);
+  assert.equal(LIMITS.dimension, undefined);
+  assert.ok(projectUsage(project(1, 1, 1000, 1)).ratio < 1);
   assert.equal(projectUsage(project(1, 1, 1, 240)).ratio, 1);
-});
-
-test('remaining capacity never promises an allocation over the pixel budget', () => {
-  for (const [w, h, layers, frames] of [
-    [160, 112, 3, 6],
-    [256, 256, 4, 20],
-    [512, 512, 1, 30],
-  ]) {
-    const usage = projectUsage(project(w, h, layers, frames));
-    const maxLayers = layers + usage.moreLayers,
-      maxFrames = frames + usage.moreFrames;
-    assert.ok(w * h * maxLayers * frames <= LIMITS.pixels);
-    assert.ok(w * h * layers * maxFrames <= LIMITS.pixels);
-    if (maxLayers < LIMITS.layers) assert.ok(w * h * (maxLayers + 1) * frames > LIMITS.pixels);
-    if (maxFrames < LIMITS.frames) assert.ok(w * h * layers * (maxFrames + 1) > LIMITS.pixels);
-  }
+  assert.equal(projectUsage(project(4096, 4096, 4, 1)).ratio, 1);
 });

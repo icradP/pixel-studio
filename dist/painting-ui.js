@@ -11,7 +11,7 @@ export function layerEffects(root, host) {
   root.querySelector('#opacity').closest('label').after(c);
   const base = clippingBase(p, i),
     a = l.adjustments || {};
-  c.innerHTML = `<label>混合模式<select id="layer-blend" ${l.group && l.isolated === false ? 'disabled' : ''}>${BLEND_MODES.map((v, i) => `<option value="${i}">${v}</option>`).join('')}</select></label>${l.group ? '' : `<label class="switch">锁定透明度<input id="alpha-lock" type="checkbox" ${l.alphaLock ? 'checked' : ''}></label><label class="switch">剪贴到下方图层<input id="layer-clipping" type="checkbox" ${l.clipping ? 'checked' : ''} ${base < 0 && !l.clipping ? 'disabled' : ''}></label><p class="help">剪贴使用同组下方像素图层的轮廓；锁定透明度可在原有像素内上色。</p><h3>图层遮罩</h3>${l.mask ? `<div class="mask-summary"><canvas id="layer-mask-thumb" width="${p.w}" height="${p.h}" aria-label="当前遮罩预览"></canvas><span>${host.maskEditing() ? '正在编辑遮罩' : '遮罩已附加'}<small>所有动画帧共用</small></span></div><div class="animation-two"><button id="mask-edit" aria-pressed="${host.maskEditing()}">${host.maskEditing() ? '返回像素绘画' : '绘制遮罩'}</button><button id="mask-toggle">${l.maskEnabled === false ? '启用遮罩' : '停用遮罩'}</button><button id="mask-black">黑色 · 隐藏</button><button id="mask-white">白色 · 显示</button><button id="mask-invert">反转遮罩</button><button id="mask-apply">应用遮罩</button><button id="mask-delete">移除遮罩</button></div><p class="help">黑色隐藏、白色恢复、灰色半透明。可用笔刷、橡皮和渐变绘制。移除遮罩恢复原图；应用遮罩后仍可撤销。</p>` : `<button id="mask-add" class="panel-wide">＋ ${host.selection() ? '从当前选区创建遮罩' : '添加白色遮罩'}</button>`}<details class="layer-adjustments"><summary>颜色调整</summary>${range('adjust-hue', '色相', a.hue || 0, -180, 180, '°')}${range('adjust-saturation', '饱和度', a.saturation ?? 100, 0, 200)}${range('adjust-brightness', '亮度', a.brightness || 0, -100, 100)}${range('adjust-contrast', '对比度', a.contrast || 0, -100, 100)}<button id="adjust-reset" class="panel-wide">重置颜色调整</button><p class="help">调整整层所有帧，原始像素保留。拖动后松手应用。</p></details>`}`;
+  c.innerHTML = `<label>混合模式<select id="layer-blend" ${l.group && l.isolated === false ? 'disabled' : ''}>${BLEND_MODES.map((v, i) => `<option value="${i}">${v}</option>`).join('')}</select></label>${l.group ? '' : `<label class="switch">锁定透明度<input id="alpha-lock" type="checkbox" ${l.alphaLock ? 'checked' : ''}></label><label class="switch">剪贴到下方图层<input id="layer-clipping" type="checkbox" ${l.clipping ? 'checked' : ''} ${base < 0 && !l.clipping ? 'disabled' : ''}></label><p class="help">剪贴使用同组下方像素图层的轮廓；锁定透明度可在原有像素内上色。</p><h3>图层遮罩</h3>${l.mask ? `<div class="mask-summary"><canvas id="layer-mask-thumb" width="1" height="1" aria-label="当前遮罩预览"></canvas><span>${host.maskEditing() ? '正在编辑遮罩' : '遮罩已附加'}<small>所有动画帧共用</small></span></div><div class="animation-two"><button id="mask-edit" aria-pressed="${host.maskEditing()}">${host.maskEditing() ? '返回像素绘画' : '绘制遮罩'}</button><button id="mask-toggle">${l.maskEnabled === false ? '启用遮罩' : '停用遮罩'}</button><button id="mask-black">黑色 · 隐藏</button><button id="mask-white">白色 · 显示</button><button id="mask-invert">反转遮罩</button><button id="mask-apply">应用遮罩</button><button id="mask-delete">移除遮罩</button></div><p class="help">黑色隐藏、白色恢复、灰色半透明。可用笔刷、橡皮和渐变绘制。移除遮罩恢复原图；应用遮罩后仍可撤销。</p>` : `<button id="mask-add" class="panel-wide">＋ ${host.selection() ? '从当前选区创建遮罩' : '添加白色遮罩'}</button>`}<details class="layer-adjustments"><summary>颜色调整</summary>${range('adjust-hue', '色相', a.hue || 0, -180, 180, '°')}${range('adjust-saturation', '饱和度', a.saturation ?? 100, 0, 200)}${range('adjust-brightness', '亮度', a.brightness || 0, -100, 100)}${range('adjust-contrast', '对比度', a.contrast || 0, -100, 100)}<button id="adjust-reset" class="panel-wide">重置颜色调整</button><p class="help">调整整层所有帧，原始像素保留。拖动后松手应用。</p></details>`}`;
   const q = (s) => c.querySelector(s),
     run = (fn) => {
       try {
@@ -38,11 +38,21 @@ export function layerEffects(root, host) {
     run((p) => (p.layers[i].clipping = v));
   };
   if (l.mask) {
-    const pixels = new Uint8ClampedArray(p.w * p.h * 4);
-    l.mask.forEach((v, j) => pixels.set([v, v, v, 255], j * 4));
-    q('#layer-mask-thumb')
-      .getContext('2d')
-      .putImageData(new ImageData(pixels, p.w, p.h), 0, 0);
+    const canvas = q('#layer-mask-thumb'),
+      scale = Math.min(1, 72 / Math.max(p.w, p.h));
+    canvas.width = Math.max(1, Math.round(p.w * scale));
+    canvas.height = Math.max(1, Math.round(p.h * scale));
+    const pixels = new Uint8ClampedArray(canvas.width * canvas.height * 4);
+    for (let y = 0; y < canvas.height; y++)
+      for (let x = 0; x < canvas.width; x++) {
+        const v =
+          l.mask[
+            Math.floor(((y + 0.5) * p.h) / canvas.height) * p.w +
+              Math.floor(((x + 0.5) * p.w) / canvas.width)
+          ];
+        pixels.set([v, v, v, 255], (y * canvas.width + x) * 4);
+      }
+    canvas.getContext('2d').putImageData(new ImageData(pixels, canvas.width, canvas.height), 0, 0);
     q('#mask-edit').onclick = () => host.editMask(!host.maskEditing());
     q('#mask-toggle').onclick = () =>
       run((p) => (p.layers[i].maskEnabled = p.layers[i].maskEnabled === false));

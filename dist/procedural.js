@@ -346,10 +346,8 @@ export function bakePlan(
   const layers = project.layers.length + (replace ? 0 : planes + 1),
     frames = project.frames.length + (replace ? 0 : samples.length),
     pixels = project.w * project.h * layers * frames;
-  if (layers > LIMITS.layers || frames > LIMITS.frames)
-    throw Error(
-      `烘焙后需要 ${layers} 层、${frames} 帧；上限 32 层 / 240 帧，请减少本次帧数或缩短区间`,
-    );
+  if (frames > LIMITS.frames)
+    throw Error(`烘焙后需要 ${layers} 层、${frames} 帧；上限 240 帧，请减少本次帧数或缩短区间`);
   const compact = pixels > LIMITS.pixels || project.storage === 'packed';
   return {
     samples,
@@ -474,8 +472,8 @@ export async function bakeScene(
         store(indices[offset++], pixels);
       }
     }
-    if (storageBytes(next) > LIMITS.pixels * 4)
-      throw Error('无损压缩后仍超过 32 MB 实际存储预算，请缩短区间或降低帧率');
+    if (storageBytes(next) > LIMITS.projectBytes)
+      throw Error('无损压缩后仍超过 256 MiB 实际存储预算，请缩短区间或降低帧率');
     progress(i + 1, plan.samples.length);
     await yieldFrame();
   }

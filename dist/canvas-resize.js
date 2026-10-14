@@ -1,5 +1,6 @@
-import { readCel } from './cel-storage.js';
+import { readCel, emptyPackedCel, emptyCel, packCel } from './cel-storage.js';
 import { LIMITS } from './limits.js';
+import { canvasPixels } from './pixel-budget.js';
 import { validate, cloneLayer } from './engine.js';
 import { moveSceneCanvas } from './procedural-model.js';
 
@@ -18,15 +19,13 @@ export function proportionalExpansion(project, percent, anchor = [0.5, 0.5]) {
 
 export function expansionSize(project, sides) {
   const values = ['left', 'right', 'top', 'bottom'].map((key) => sides[key] ?? 0);
-  if (values.some((n) => !Number.isInteger(n) || n < 0 || n > LIMITS.dimension))
-    throw Error('每个方向请输入 0–1024 的整数像素。');
+  if (values.some((n) => !Number.isSafeInteger(n) || n < 0))
+    throw Error('每个方向请输入非负整数像素。');
   const [left, right, top, bottom] = values;
   const w = project.w + left + right,
     h = project.h + top + bottom;
-  if (w > LIMITS.dimension || h > LIMITS.dimension)
-    throw Error(`扩展后为 ${w} × ${h}，画布最大为 ${LIMITS.dimension} × ${LIMITS.dimension}。`);
+  canvasPixels(w, h);
   const pixels = w * h * project.layers.length * project.frames.length;
-  if (pixels > LIMITS.pixels) throw Error('扩展后超过 800 万总像素，请减少边距、帧或图层。');
   return {
     w,
     h,
@@ -44,9 +43,14 @@ export function expansionSize(project, sides) {
 export function expandCanvas(project, sides) {
   const next = expansionSize(project, sides);
   if (!next.changed) throw Error('请至少扩展一个方向。');
+  const compact = project.storage === 'packed' || next.pixels > LIMITS.pixels;
+  const expanded = new Map();
   const frames = project.frames.map((frame) => ({
     ...frame,
     cels: frame.cels.map((input) => {
+      if (compact && expanded.has(input)) return expanded.get(input);
+      if (compact && emptyPackedCel(input) && input.data[1] === 0)
+        return emptyCel(next.w * next.h * 4);
       const source = readCel(input);
       const pixels = new Uint8ClampedArray(next.w * next.h * 4);
       for (let y = 0; y < project.h; y++)
@@ -54,11 +58,14 @@ export function expandCanvas(project, sides) {
           source.subarray(y * project.w * 4, (y + 1) * project.w * 4),
           ((y + next.top) * next.w + next.left) * 4,
         );
-      return pixels;
+      const output = compact ? packCel(pixels) : pixels;
+      if (compact) expanded.set(input, output);
+      return output;
     }),
   }));
   return validate({
     ...project,
+    ...(compact ? { storage: 'packed' } : {}),
     ...(project.procedural
       ? { procedural: moveSceneCanvas(project.procedural, next.w, next.h, next.left, next.top) }
       : {}),

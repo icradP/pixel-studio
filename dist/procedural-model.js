@@ -82,7 +82,10 @@ export function assertSourceAvailable(scene, source, except) {
 const finite = (v, a, b) => Number.isFinite(v) && v >= a && v <= b;
 const identifier = (v) => typeof v === 'string' && v.length > 0 && v.length <= 100;
 const list = (v, max) => Array.isArray(v) && v.length <= max;
-const point = (p) => p && finite(p.x, -16384, 16384) && finite(p.y, -16384, 16384);
+const point = (p) =>
+  p &&
+  finite(p.x, -Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER) &&
+  finite(p.y, -Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
 function curve(keys, time, min, max, endpoints = false) {
   if (!list(keys, SCENE_LIMITS.keys)) return false;
   let last = -1;
@@ -163,7 +166,7 @@ export function validateScene(scene, project) {
       !point(o.origin) ||
       !o.source ||
       !identifier(o.source.frameId) ||
-      !list(o.source.layerIds, 32) ||
+      !list(o.source.layerIds, project.layers.length) ||
       !o.source.layerIds.length ||
       o.source.layerIds.some((id) => !identifier(id)) ||
       new Set(o.source.layerIds).size !== o.source.layerIds.length ||
@@ -271,7 +274,7 @@ export function validateScene(scene, project) {
       !identifier(b.id) ||
       !['objects', 'composite'].includes(b.mode) ||
       !list(b.frameIds, 240) ||
-      !list(b.layerIds, 32) ||
+      !list(b.layerIds, project.layers.length) ||
       !b.frameIds.length ||
       b.layerIds.length < 2 ||
       new Set(b.frameIds).size !== b.frameIds.length ||

@@ -86,7 +86,7 @@ test('choice menus preserve form values, keyboard navigation and dismissal', asy
 test('capacity and switch state update with edits and history', async ({ page }) => {
   await ready(page);
   await page.locator('#capacity-indicator').click();
-  await expect(page.locator('#capacity-layers')).toHaveText('3 / 32');
+  await expect(page.locator('#capacity-layers')).toHaveText('3 · 不设数量上限');
   await expect(page.locator('#capacity-frames')).toHaveText('6 / 240');
   await expect(page.locator('#window-capacity')).toContainText('64.0 MiB');
   await expect(page.locator('#window-capacity')).toContainText('32.0 MiB');
@@ -165,7 +165,8 @@ test('one stroke retains 90 frame nodes and recomposites only changed previews',
     buffer: Buffer.from(serialize(project)),
   });
   await expect(page.locator('#project-name')).toHaveText('frames');
-  await expect(page.locator('#frames canvas[data-ready]')).toHaveCount(90);
+  await expect.poll(() => page.locator('#frames canvas[data-ready]').count()).toBeGreaterThan(1);
+  expect(await page.locator('#frames canvas[data-ready]').count()).toBeLessThan(20);
   await page.evaluate(() => {
     window.testFrameNodes = [...document.querySelectorAll('#frames > button')];
     window.testPutCount = 0;
@@ -178,7 +179,8 @@ test('one stroke retains 90 frame nodes and recomposites only changed previews',
   const canvas = await page.locator('#view').boundingBox();
   await page.mouse.click(canvas.x + canvas.width / 2, canvas.y + canvas.height / 2);
   await expect(page.locator('#save-status')).toHaveText('已保存在此设备');
-  await expect(page.locator('#frames canvas[data-ready]')).toHaveCount(90);
+  await expect.poll(() => page.locator('#frames canvas[data-ready]').count()).toBeGreaterThan(1);
+  expect(await page.locator('#frames canvas[data-ready]').count()).toBeLessThan(20);
   const result = await page.evaluate(() => ({
     calls: window.testPutCount,
     retained: window.testFrameNodes.every(
@@ -210,7 +212,8 @@ test('one stroke retains 90 frame nodes and recomposites only changed previews',
   await expect(page.locator('.ase-cel').nth(1)).toContainText('●');
   await page.locator('#timeline-detail').click();
   await expect(page.locator('#frames')).toBeVisible();
-  await expect(page.locator('#frames canvas[data-ready]')).toHaveCount(90);
+  await expect.poll(() => page.locator('#frames canvas[data-ready]').count()).toBeGreaterThan(1);
+  expect(await page.locator('#frames canvas[data-ready]').count()).toBeLessThan(20);
   expect(
     await page
       .locator('#frames canvas')

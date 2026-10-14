@@ -12,11 +12,11 @@ export function createExpansionPanel(root, host) {
   ]
     .map(
       ([key, name, arrow]) =>
-        `<label class="expand-${key}"><span>${arrow} ${name}</span><input id="expand-${key}" name="${key}" aria-label="${name}扩展像素" type="number" min="0" max="1024" step="1" value="0" required><small>px</small></label>`,
+        `<label class="expand-${key}"><span>${arrow} ${name}</span><input id="expand-${key}" name="${key}" aria-label="${name}扩展像素" type="number" min="0" step="1" value="0" required><small>px</small></label>`,
     )
     .join(
       '',
-    )}<span class="expand-center" aria-hidden="true">▧</span></div><div class="expand-quick"><button type="button" data-expand-all="8">四周 +8</button><button type="button" data-expand-all="16">四周 +16</button><button type="reset">重置</button></div><div class="expand-summary"><strong id="expand-size"></strong><span id="expand-memory"></span></div><p id="expand-status" role="status"></p></form><p class="help">所有帧、所有图层一同扩展。已有像素保持原始大小，新增区域透明；应用后可以撤销。当前选区会清除。</p><p class="help">最大 1024 × 1024，所有帧与图层共用 800 万像素预算。</p>`;
+    )}<span class="expand-center" aria-hidden="true">▧</span></div><div class="expand-quick"><button type="button" data-expand-all="8">四周 +8</button><button type="button" data-expand-all="16">四周 +16</button><button type="reset">重置</button></div><div class="expand-summary"><strong id="expand-size"></strong><span id="expand-memory"></span></div><p id="expand-status" role="status"></p></form><p class="help">所有帧、所有图层一同扩展。已有像素保持原始大小，新增区域透明；应用后可以撤销。当前选区会清除。</p><p class="help">宽高不设固定上限；单张像素面编辑缓冲预算 64 MiB，实际像素存储预算 256 MiB。</p>`;
   const surface = root.parentElement,
     footer = document.createElement('footer');
   footer.className = 'window-footer expand-footer';
@@ -62,7 +62,7 @@ export function createExpansionPanel(root, host) {
       q('#expand-status').classList.remove('error');
       q('#expand-size').textContent = `${project.w} × ${project.h} → ${next.w} × ${next.h}`;
       q('#expand-memory').textContent =
-        `${mebibytes(next.bytes)} · 像素预算 ${Math.round((next.pixels / LIMITS.pixels) * 100)}%`;
+        `${mebibytes(next.w * next.h * 4)} / ${mebibytes(LIMITS.planeBytes)} 单张编辑缓冲 · 压缩存储另计`;
     } catch (error) {
       valid = false;
       q('#expand-status').textContent = error.message;

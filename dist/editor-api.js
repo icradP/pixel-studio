@@ -397,7 +397,7 @@ export function createEditorAPI(host) {
         }
         ensureSourceIds(next);
         if (next.storage === 'packed' && !sceneOnly) next = compactProject(next);
-        validate(next);
+        validate(next, { reusePixels: true });
         references(next);
         check();
         host.commit(next, {

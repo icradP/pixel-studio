@@ -157,9 +157,9 @@ test('invalid expansion is blocked without changing the canvas', async ({ page }
   await ready(page);
   await page.getByRole('button', { name: '画室设置', exact: true }).click();
   await page.locator('#settings-expand').click();
-  await page.locator('#expand-left').fill('1024');
+  await page.locator('#expand-left').fill('1000000');
   await expect(page.locator('#expand-apply')).toBeDisabled();
-  await expect(page.locator('#expand-status')).toContainText('最大为 1024');
+  await expect(page.locator('#expand-status')).toContainText('64 MiB');
   await expect(page.locator('#expand-status')).toBeInViewport();
   await expect(page.locator('#expand-size')).toBeInViewport();
   await expect(page.locator('#expand-apply')).toBeInViewport();

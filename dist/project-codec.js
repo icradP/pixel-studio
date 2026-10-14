@@ -1,4 +1,5 @@
 import { packCel, validateCel, readCel } from './cel-storage.js';
+import { canvasPixels, PROJECT_BYTES } from './pixel-budget.js';
 const encode = (bytes) => {
   let text = '';
   for (let i = 0; i < bytes.length; i += 8192)
@@ -53,25 +54,22 @@ export function encodeProject(p) {
   });
 }
 export function decodeProject(p) {
-  const length = p.w * p.h * 4;
+  const length = canvasPixels(p.w, p.h) * 4;
   if (
     p.codec !== 'rle-xor32' ||
     !Number.isInteger(p.w) ||
     !Number.isInteger(p.h) ||
     p.w < 1 ||
     p.h < 1 ||
-    p.w > 1024 ||
-    p.h > 1024 ||
     !Array.isArray(p.pool) ||
-    p.pool.length > 15360 ||
     !Array.isArray(p.frames) ||
     p.frames.length > 240 ||
-    !Array.isArray(p.layers) ||
-    p.layers.length > 32
+    !Array.isArray(p.layers)
   )
     throw Error('压缩项目格式无效');
-  if (p.storage !== 'packed' && p.w * p.h * p.layers.length * p.frames.length > 8_000_000)
-    throw Error('项目像素超出限制');
+  if (p.pool.length > p.layers.length * p.frames.length * 2) throw Error('压缩单元池无效');
+  const compact =
+    p.storage === 'packed' || p.w * p.h * p.layers.length * p.frames.length > 8_000_000;
   let total = 0;
   const pool = [];
   for (const entry of p.pool) {
@@ -83,7 +81,7 @@ export function decodeProject(p) {
       throw Error('压缩单元无效');
     const bytes = decode(entry.data, length + 4096);
     total += bytes.length;
-    if (total > 32_000_000 || (!entry.compression && bytes.length % 4))
+    if (total > PROJECT_BYTES || (!entry.compression && bytes.length % 4))
       throw Error('压缩项目超过存储预算');
     const words = new Uint32Array(entry.compression ? 0 : Math.floor(bytes.length / 4)),
       view = new DataView(bytes.buffer);
@@ -111,14 +109,14 @@ export function decodeProject(p) {
     ...f,
     cels: f.cels.map((id) => {
       if (!Number.isInteger(id) || !pool[id]) throw Error('单元引用无效');
-      return p.storage === 'packed' ? pool[id] : new Uint8ClampedArray(readCel(pool[id]));
+      return compact ? pool[id] : new Uint8ClampedArray(readCel(pool[id]));
     }),
   }));
   const layers = p.layers.map((l) => ({
     ...l,
     ...(l.mask ? { mask: new Uint8ClampedArray(decode(l.mask, length / 4)) } : {}),
   }));
-  const out = { ...p, version: 1, layers, frames };
+  const out = { ...p, ...(compact ? { storage: 'packed' } : {}), version: 1, layers, frames };
   delete out.pool;
   delete out.codec;
   return out;

@@ -320,3 +320,55 @@ test('canvas text creates a new layer; WebMCP selected compact bake exports and 
   await expect(page.locator('body')).not.toHaveAttribute('inert', '');
   expect((await state(page)).frames).toHaveLength(121);
 });
+
+test('wide canvas, 81 layers and virtualized frame grid support WebMCP, scrolling and saved reload', async ({
+  page,
+}) => {
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await load(page);
+  await create(page, 2048, 8);
+  for (let i = 0; i < 4; i++) {
+    const result = await call(page, 'edit_layers', {
+      operations: Array.from({ length: 20 }, () => ({ action: 'add' })),
+    });
+    expect(result.isError, result.message).not.toBe(true);
+  }
+  expect((await state(page)).layers).toHaveLength(81);
+  expect(
+    (
+      await call(page, 'draw', {
+        frame: 0,
+        layer: 80,
+        commands: [{ type: 'pixel', x: 2047, y: 7, color: '#aabbcc' }],
+      })
+    ).isError,
+  ).not.toBe(true);
+  await page.locator('[data-panel="layers"]').click();
+  expect(await page.locator('#layer-list > .layer').count()).toBeLessThan(20);
+  await expect(page.locator('.layers-toolbar')).toContainText('81 图层');
+  await page.locator('#layer-list [data-drag-key="80"] .visibility').click();
+  expect((await state(page)).layers[80].visible).toBe(false);
+  await page.locator('#quick-undo').click();
+  expect((await state(page)).layers[80].visible).toBe(true);
+  await page.locator('#window-layers .window-body').evaluate((body) => {
+    body.scrollTop = body.scrollHeight;
+  });
+  await expect(page.locator('#layer-list [data-drag-key="0"]')).toBeVisible();
+  await page.locator('#layer-list [data-drag-key="0"] .layer-select').click();
+  await expect(page.locator('#layer-list [data-drag-key="0"]')).toHaveClass(/active/);
+  await page.locator('#window-layers .window-close').click();
+  await page.locator('#timeline-detail').click();
+  await expect(page.locator('#ase-timeline')).toBeVisible();
+  expect(await page.locator('.ase-cel').count()).toBeLessThan(30);
+  await page.locator('#ase-timeline').evaluate((body) => {
+    body.scrollTop = body.scrollHeight;
+  });
+  await expect(page.locator('.ase-layer-select').last()).toHaveText('图层 1');
+  expect((await call(page, 'save')).saved).toBe(true);
+  await page.reload();
+  await expect(page.locator('#project-detail')).toContainText('2048 × 8');
+  await expect(page.locator('#canvas-info')).toContainText('81 层');
+  expect((await state(page)).layers).toHaveLength(81);
+  expect(errors).toEqual([]);
+});

@@ -4,14 +4,14 @@ import { composite } from './engine.js';
 // Two passes, retaining only one composited frame and two indexed planes.
 export function gifPlan(
   p,
-  { from = 0, to = p.frames.length - 1, maxEdge = 1024, colors = 256, fps = 0 } = {},
+  { from = 0, to = p.frames.length - 1, maxEdge = Math.max(p.w, p.h), colors = 256, fps = 0 } = {},
 ) {
   if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < from || !p.frames[to])
     throw Error('GIF 帧范围无效');
   if (
     !Number.isInteger(maxEdge) ||
     maxEdge < 1 ||
-    maxEdge > 1024 ||
+    maxEdge > 65535 ||
     ![16, 32, 64, 128, 256].includes(colors) ||
     !Number.isFinite(fps) ||
     fps < 0 ||

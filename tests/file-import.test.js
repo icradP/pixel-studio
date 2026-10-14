@@ -22,7 +22,10 @@ test('corrupt named ASE reaches the parser and unsupported files get an actionab
     /请选择 Aseprite/,
   );
   await assert.rejects(importKind(new File([], 'empty.aseprite')), /文件为空/);
-  await assert.rejects(importKind({ size: 61 * 1024 * 1024 }), /60 MiB/);
+  await assert.rejects(
+    importKind({ size: 61 * 1024 * 1024, slice: () => new Blob(['not a project']) }),
+    /60 MiB/,
+  );
 });
 test('project and image imports do not depend on OS MIME registration', async () => {
   assert.equal(await importKind(new File(['{}'], 'backup.pixel')), 'project');
@@ -39,4 +42,19 @@ test('project and image imports do not depend on OS MIME registration', async ()
       await importKind(new File([new Uint8Array(bytes)], 'image', { type: '' })),
       'image',
     );
+});
+
+test('project import has an independent file budget beyond 60 MiB', async () => {
+  assert.equal(
+    await importKind({
+      size: 70 * 1024 * 1024,
+      name: 'large.pixel',
+      slice: () => new Blob(['{}']),
+    }),
+    'project',
+  );
+  await assert.rejects(
+    importKind({ size: 385 * 1024 * 1024, name: 'large.pixel', slice: () => new Blob(['{}']) }),
+    /384 MiB/,
+  );
 });

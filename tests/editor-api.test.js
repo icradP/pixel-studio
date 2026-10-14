@@ -192,7 +192,8 @@ test('API snapshot is detached, bounded, and shares real engine limits', async (
     d = await f.call('get_document');
   d.layers[0].name = 'external mutation';
   assert.equal(f.s.project.layers[0].name, '图层 1');
-  assert.equal(d.limits.dimension, 1024);
+  assert.equal(d.limits.dimension, undefined);
+  assert.equal(d.limits.planeBytes, 64 * 1024 * 1024);
   assert.equal(d.usage.bytes, 16 * 16 * 4);
   assert.equal(d.frames[0].cels, undefined);
 });
@@ -436,12 +437,8 @@ for (const kind of ['cancel', 'manual edit'])
     assert.equal(serialize(f.s.project), before);
     assert.equal(f.s.history.count, history);
   });
-test('capacity and drawing work budgets fail atomically', async () => {
+test('drawing work budgets fail atomically on a large canvas', async () => {
   const f = fixture(blank(1024, 1024));
-  await assert.rejects(
-    f.call('edit_layers', { operations: Array.from({ length: 8 }, () => ({ action: 'add' })) }),
-    /容量/,
-  );
   await assert.rejects(
     f.call(
       'draw',
@@ -532,4 +529,27 @@ test('rapid overlapping enable/disable requests serialize registration without s
   assert.equal(c.tools.size, 15);
   await adapter.stop();
   assert.equal(c.tools.size, 0);
+});
+
+test('WebMCP creates a wide canvas and edits layers above index 31 with shared undo', async () => {
+  const f = fixture();
+  await f.call('create_document', { name: '宽画布', width: 2048, height: 8 });
+  for (let i = 0; i < 2; i++)
+    await f.call('edit_layers', {
+      operations: Array.from({ length: 24 }, () => ({ action: 'add' })),
+    });
+  assert.equal(f.s.project.layers.length, 49);
+  await f.call('draw', {
+    frame: 0,
+    layer: 48,
+    commands: [{ type: 'pixel', x: 2047, y: 7, color: '#aabbcc' }],
+  });
+  assert.deepEqual(pixel(f.s.project, 2047, 7, 0, 48), [170, 187, 204, 255]);
+  await f.call('history', { direction: 'undo' });
+  assert.deepEqual(pixel(f.s.project, 2047, 7, 0, 48), [0, 0, 0, 0]);
+  await f.call('history', { direction: 'redo' });
+  assert.deepEqual(pixel(f.s.project, 2047, 7, 0, 48), [170, 187, 204, 255]);
+  await f.call('expand_canvas', { left: 2048 });
+  assert.equal(f.s.project.w, 4096);
+  assert.deepEqual(pixel(f.s.project, 4095, 7, 0, 48), [170, 187, 204, 255]);
 });

@@ -16,17 +16,26 @@ export const array = (items, maxItems, minItems = 0) => ({
   minItems,
   maxItems,
 });
-export const point = object({ x: number(-16384, 16384), y: number(-16384, 16384) }, ['x', 'y']);
-const pixelPoint = object({ x: integer(0, 1023), y: integer(0, 1023) }, ['x', 'y']);
+export const point = object(
+  {
+    x: number(-Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER),
+    y: number(-Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER),
+  },
+  ['x', 'y'],
+);
+const pixelPoint = object(
+  { x: integer(0, Number.MAX_SAFE_INTEGER), y: integer(0, Number.MAX_SAFE_INTEGER) },
+  ['x', 'y'],
+);
 const color = { type: 'string', pattern: '^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$' };
 const index = integer(0, 239),
-  layer = integer(0, 31);
+  layer = integer(0, Number.MAX_SAFE_INTEGER);
 const revision = string(240);
 const bounds = {
-  x: integer(0, 1023),
-  y: integer(0, 1023),
-  width: integer(1, 1024),
-  height: integer(1, 1024),
+  x: integer(0, Number.MAX_SAFE_INTEGER),
+  y: integer(0, Number.MAX_SAFE_INTEGER),
+  width: integer(1, Number.MAX_SAFE_INTEGER),
+  height: integer(1, Number.MAX_SAFE_INTEGER),
 };
 const keys = (min, max, time = 60) =>
   array(object({ t: number(0, time), v: number(min, max) }, ['t', 'v']), 128);
@@ -132,12 +141,15 @@ export const EDITOR_TOOLS = [
   tool(
     'create_document',
     '创建作品',
-    'Create and open a blank document. Saves the previous work in the local gallery first; does not overwrite it. Dimensions up to 1024, subject to total pixel budget.',
-    change({ name: string(), width: integer(1, 1024), height: integer(1, 1024) }, [
-      'name',
-      'width',
-      'height',
-    ]),
+    'Create and open a blank document. Saves the previous work in the local gallery first; does not overwrite it. No fixed dimension or layer count cap; canvas area and actual storage are checked against memory budgets.',
+    change(
+      {
+        name: string(),
+        width: integer(1, Number.MAX_SAFE_INTEGER),
+        height: integer(1, Number.MAX_SAFE_INTEGER),
+      },
+      ['name', 'width', 'height'],
+    ),
   ),
   tool(
     'edit_layers',
@@ -150,7 +162,7 @@ export const EDITOR_TOOLS = [
             {
               action: choice('add', 'update', 'duplicate', 'move', 'delete'),
               layer,
-              parent: integer(-1, 31),
+              parent: integer(-1, Number.MAX_SAFE_INTEGER),
               group: boolean,
               name: string(),
               visible: boolean,
@@ -214,8 +226,8 @@ export const EDITOR_TOOLS = [
       {
         frame: index,
         text: string(512),
-        x: number(-1024, 1024),
-        y: number(-1024, 1024),
+        x: number(-Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER),
+        y: number(-Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER),
         size: number(4, 128),
         direction: choice('horizontal', 'vertical'),
         spacing: integer(0, 32),
@@ -256,10 +268,10 @@ export const EDITOR_TOOLS = [
         layer,
         selection: choice('current', 'all'),
         region: object(bounds, Object.keys(bounds)),
-        x: number(-16384, 16384),
-        y: number(-16384, 16384),
-        width: number(1, 1024),
-        height: number(1, 1024),
+        x: number(-Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER),
+        y: number(-Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER),
+        width: number(1, Number.MAX_SAFE_INTEGER),
+        height: number(1, Number.MAX_SAFE_INTEGER),
         rotation: number(-36000, 36000),
         flipX: boolean,
         flipY: boolean,
@@ -274,10 +286,10 @@ export const EDITOR_TOOLS = [
     '扩展画布',
     'Expand in four directions without resampling; shifts animation paths and masks with the artwork. Each margin is integer pixels.',
     change({
-      left: integer(0, 1024),
-      right: integer(0, 1024),
-      top: integer(0, 1024),
-      bottom: integer(0, 1024),
+      left: integer(0, Number.MAX_SAFE_INTEGER),
+      right: integer(0, Number.MAX_SAFE_INTEGER),
+      top: integer(0, Number.MAX_SAFE_INTEGER),
+      bottom: integer(0, Number.MAX_SAFE_INTEGER),
     }),
   ),
   tool(
@@ -299,8 +311,8 @@ export const EDITOR_TOOLS = [
             id: string(100),
             name: string(80),
             enabled: boolean,
-            x: number(-16384, 16384),
-            y: number(-16384, 16384),
+            x: number(-Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER),
+            y: number(-Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER),
             radius: number(1, 2048),
             intensity: number(0, 4),
             color,
@@ -324,7 +336,7 @@ export const EDITOR_TOOLS = [
             action: choice('create', 'update', 'delete'),
             id: string(100),
             name: string(80),
-            sourceLayers: array(layer, 32, 1),
+            sourceLayers: array(layer, Number.MAX_SAFE_INTEGER, 1),
             region: object(bounds, Object.keys(bounds)),
             origin: point,
             path,
@@ -401,7 +413,7 @@ export const EDITOR_TOOLS = [
         from: index,
         to: index,
         gif: object({
-          maxEdge: integer(1, 1024),
+          maxEdge: integer(1, 65535),
           colors: { type: 'integer', enum: [16, 32, 64, 128, 256] },
           fps: number(0, 50),
         }),

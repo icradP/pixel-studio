@@ -76,12 +76,14 @@ test('layer duplication and reorder preserve whole subtrees and independent fram
   assert.throws(() => reorderBeside(p, 0, 1), /同一组/);
   assert.deepEqual(p, before);
 });
-test('layer copy rejects capacity overflow before mutating artwork', () => {
+test('layer copy compacts large matrices instead of rejecting a fixed layer count', () => {
   const p = blank(512, 512);
   p.layers = Array.from({ length: 30 }, () => ({ name: 'x', visible: true, opacity: 255 }));
   p.frames[0].cels = p.layers.map(() => new Uint8ClampedArray(512 * 512 * 4));
-  assert.throws(() => duplicateLayer(p, 0), /容量/);
-  assert.equal(p.layers.length, 30);
+  for (let i = 0; i < 10; i++) duplicateLayer(p, 0);
+  assert.equal(p.layers.length, 40);
+  assert.equal(p.storage, 'packed');
+  assert.equal(p.frames[0].cels[0], p.frames[0].cels[1]);
 });
 test('gallery organization survives reload, prunes missing IDs and keeps artwork in only one stack', () => {
   const records = ['a', 'b', 'c', 'd'].map((id) => ({ id }));

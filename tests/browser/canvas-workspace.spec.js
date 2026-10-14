@@ -62,7 +62,7 @@ test('1024 preset shows the actual budget and survives a saved drawing and reloa
   await page.locator('#gallery').click();
   await page.locator('#new-project').click();
   await page.locator('[data-size="1024"]').click();
-  await expect(page.locator('#new-capacity-note')).toContainText('单帧最多 7 层');
+  await expect(page.locator('#new-capacity-note')).toContainText('图层数量和宽高不设固定上限');
   await page.locator('#new-form button[type="submit"]').click();
   await expect(page.locator('#project-detail')).toContainText('1024 × 1024');
   await page.waitForTimeout(360);
@@ -80,7 +80,7 @@ test('1024 preset shows the actual budget and survives a saved drawing and reloa
   await page.reload();
   await expect(page.locator('#project-detail')).toContainText('1024 × 1024');
   await page.locator('#capacity-indicator').click();
-  await expect(page.locator('#capacity-more-layers')).toContainText('6 个图层');
+  await expect(page.locator('#capacity-more-layers')).toContainText('按实际像素存储');
   await page.locator('#capacity-export').click();
   await page.locator('.export-scale .choice-button').click();
   await expect(page.getByRole('option', { name: '清晰放大 · 8× · 超出输出容量' })).toBeDisabled();

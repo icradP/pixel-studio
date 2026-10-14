@@ -8,7 +8,7 @@ import {
   compactProject,
 } from './cel-storage.js';
 import { pressureResponse, applyGradient, mixPaintEffect, paintMask } from './paint.js';
-import { BLEND_MODES, layerPixels } from './layer-effects.js';
+import { BLEND_MODES } from './layer-effects.js';
 import { layerEffects, gradientSettings } from './painting-ui.js';
 import { canvasPoint } from './camera.js';
 import { LIMITS, projectUsage, mebibytes } from './limits.js';
@@ -27,6 +27,9 @@ import {
 import { createToolBrushes } from './tool-brushes.js';
 import { duplicateLayer, reorderBeside } from './layer-actions.js';
 import { itemGestures } from './item-gestures.js';
+import { virtualList } from './virtual-list.js';
+import { createLayerPreviewCache } from './layer-preview.js';
+import { canvasPixels } from './pixel-budget.js';
 import { expandCanvas } from './canvas-resize.js';
 import { importKind } from './file-import.js';
 import { createToolWindows, dismissTopWindow } from './floating.js';
@@ -312,7 +315,7 @@ function editProject(fn) {
     oldLayer = layer;
   try {
     fn(project);
-    validate(project);
+    validate(project, { reusePixels: true });
   } catch (e) {
     project = before;
     frame = oldFrame;
@@ -333,31 +336,41 @@ function frameCanvas(index) {
   const canvas = thumb(project, index);
   while (frameCache.size && frameCache.size * project.w * project.h * 4 >= LIMITS.previewBytes)
     frameCache.delete(frameCache.keys().next().value);
-  frameCache.set(index, canvas);
+  if (project.w * project.h * 4 <= LIMITS.previewBytes) frameCache.set(index, canvas);
   return canvas;
 }
 function warmFrames() {
-  const key = id + ':' + dirtyVersion;
+  const row = $('#frames');
+  if (!timelineOpen || animationTimeline?.isDetailed() || row.hidden) {
+    clearTimeout(warmTimer);
+    warmKey = '';
+    return;
+  }
+  const bounds = row.getBoundingClientRect();
+  const visible = [...row.children].flatMap((button, i) => {
+    const r = button.getBoundingClientRect();
+    return r.right >= bounds.left - 96 &&
+      r.left <= bounds.right + 96 &&
+      !button.querySelector('canvas')?.dataset.ready
+      ? [i]
+      : [];
+  });
+  const key = id + ':' + dirtyVersion + ':' + visible.join(',');
   if (warmKey === key) return;
-  warmKey = key;
   clearTimeout(warmTimer);
+  warmKey = key;
   let next = 0;
   const batch = () => {
-    if (key !== id + ':' + dirtyVersion) return;
-    if (stroke) {
-      warmTimer = setTimeout(batch, 50);
-      return;
+    if (warmKey !== key || stroke || !timelineOpen) return;
+    if (next < visible.length) {
+      const index = visible[next++];
+      paintFrameThumbnail(index, frameCanvas(index));
     }
-    const start = performance.now();
-    while (next < project.frames.length && performance.now() - start < 4) {
-      paintFrameThumbnail(next, frameCanvas(next));
-      next++;
-    }
-    if (next < project.frames.length) warmTimer = setTimeout(batch, 20);
-    else updateCapacity();
+    if (next < visible.length) warmTimer = setTimeout(batch, 32);
   };
-  warmTimer = setTimeout(batch, 30);
+  warmTimer = setTimeout(batch, 80);
 }
+$('#frames').addEventListener('scroll', warmFrames, { passive: true });
 function drawOnions() {
   if (!onion || playing || stroke || selectionUI?.preview) return;
   for (const delta of [-1, 1]) {
@@ -410,12 +423,8 @@ function settingsSave() {
   }
 }
 const history = createHistory();
-function capacity(layers, frames) {
-  if (
-    layers > LIMITS.layers ||
-    frames > LIMITS.frames ||
-    (project.storage !== 'packed' && project.w * project.h * layers * frames > MAX_PIXELS)
-  ) {
+function capacity(_layers, frames) {
+  if (frames > LIMITS.frames) {
     toast('达到项目容量上限，请另存后减少图层或帧');
     return false;
   }
@@ -436,8 +445,14 @@ function commitProject(
     exitAnimation = false,
   } = {},
 ) {
-  if (next.storage === 'packed' && !sceneOnly) next = compactProject(next);
-  validate(next);
+  if (
+    !sceneOnly &&
+    (next.storage === 'packed' ||
+      next.w * next.h * next.layers.length * next.frames.length > MAX_PIXELS)
+  )
+    next = compactProject(next);
+  validate(next, { reusePixels: true });
+  checkCanvasSupport(next.w, next.h);
   if (!checkpointed) {
     if (sceneOnly) history.checkpointScene(project.procedural);
     else checkpoint(before || clone(project));
@@ -500,6 +515,24 @@ function changed(affected = null, sceneOnly = false) {
   refresh();
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => saveCurrent(), 650);
+}
+const checkedCanvasSizes = new Set();
+function checkCanvasSupport(w, h) {
+  const key = w + ':' + h;
+  if (checkedCanvasSizes.has(key)) return;
+  const canvas = document.createElement('canvas');
+  try {
+    canvas.width = w;
+    canvas.height = h;
+    const context = canvas.getContext('2d');
+    context.fillRect(w - 1, h - 1, 1, 1);
+    if (context.getImageData(w - 1, h - 1, 1, 1).data[3] !== 255) throw Error();
+    checkedCanvasSizes.add(key);
+  } catch {
+    throw Error(`当前浏览器无法创建 ${w} × ${h} 的显示画布，请调整尺寸或换用其他设备。`);
+  } finally {
+    canvas.width = canvas.height = 0;
+  }
 }
 function paintBuffer(c, pixels, w = project.w, h = project.h) {
   if (c.width !== w) c.width = w;
@@ -861,8 +894,10 @@ function refresh() {
   $('#onion').setAttribute('aria-pressed', onion);
   $('#grid').setAttribute('aria-pressed', grid);
   updateHistory();
-  framesBuild();
-  warmFrames();
+  if (timelineOpen) {
+    framesBuild();
+    warmFrames();
+  }
   if (toolWindows.has('layers') && layerPanelKey !== panelContext()) layersPanel();
   if (
     toolWindows.has('animation') &&
@@ -1094,6 +1129,11 @@ function toggleTimeline() {
   document.body.classList.toggle('timeline-closed', !timelineOpen);
   $('#timeline').inert = !timelineOpen;
   $('#timeline-toggle').setAttribute('aria-pressed', timelineOpen);
+  if (timelineOpen) refresh();
+  else {
+    clearTimeout(warmTimer);
+    warmKey = '';
+  }
 }
 $('#timeline-toggle').onclick = toggleTimeline;
 $('#collapse-timeline').onclick = toggleTimeline;
@@ -1452,8 +1492,14 @@ function moveStroke(e) {
   const events = e.getCoalescedEvents?.() || [e];
   for (const sample of events.length ? events : [e]) {
     const p = position(sample);
-    p.x = Math.max(-LIMITS.dimension, Math.min(2 * LIMITS.dimension, p.x));
-    p.y = Math.max(-LIMITS.dimension, Math.min(2 * LIMITS.dimension, p.y));
+    p.x = Math.max(
+      -Math.max(project.w, project.h),
+      Math.min(2 * Math.max(project.w, project.h), p.x),
+    );
+    p.y = Math.max(
+      -Math.max(project.w, project.h),
+      Math.min(2 * Math.max(project.w, project.h), p.y),
+    );
     if (['line', 'rect', 'ellipse'].includes(tool)) {
       stroke.mask.fill(0);
       project.frames[frame].cels[layer] = new Uint8ClampedArray(
@@ -1636,8 +1682,14 @@ const shapePreview = new ShapePreview((e) => {
     traceShape(points, project.w, project.h, size, (x, y) => stamp(x, y, e));
   } else {
     const p = position(e);
-    p.x = Math.max(-LIMITS.dimension, Math.min(2 * LIMITS.dimension, p.x));
-    p.y = Math.max(-LIMITS.dimension, Math.min(2 * LIMITS.dimension, p.y));
+    p.x = Math.max(
+      -Math.max(project.w, project.h),
+      Math.min(2 * Math.max(project.w, project.h), p.x),
+    );
+    p.y = Math.max(
+      -Math.max(project.w, project.h),
+      Math.min(2 * Math.max(project.w, project.h), p.y),
+    );
     shapeStroke(current.start, p, e);
     current.last = p;
   }
@@ -1829,6 +1881,7 @@ $('#float-drag').onpointermove = (e) => {
 $('#float-drag').onpointerup = $('#float-drag').onpointercancel = () => (floatDrag = null);
 const toolWindows = createToolWindows((type) => {
   panelType = type || '';
+  if (!toolWindows.has('layers')) stopLayerPreviews();
   $$('[data-panel]').forEach((b) => {
     const open = toolWindows.has(b.dataset.panel);
     b.classList.toggle('selected', open);
@@ -2024,7 +2077,7 @@ async function launchPlugins(initialPlugin = null) {
       },
       newProject: loadProject,
       commit: (next, mask) => {
-        validate(next);
+        validate(next, { reusePixels: true });
         checkpoint();
         const addedLayer = next.layers.length > project.layers.length;
         project = next;
@@ -2196,6 +2249,7 @@ async function expansionPanel() {
       apply: (sides) => {
         if (stroke || selectionUI?.transforming) throw Error('请先结束笔画或完成选区变换。');
         const next = expandCanvas(project, sides);
+        checkCanvasSupport(next.w, next.h);
         stop();
         checkpoint();
         project = next;
@@ -2214,7 +2268,16 @@ function panelContext() {
   return [id, dirtyVersion, frame, layer].join(':');
 }
 let layerSolo = null;
+const layerPreviews = createLayerPreviewCache();
+const layerPreviewJobs = new Set();
+let disposeLayerList = () => {};
+function stopLayerPreviews() {
+  disposeLayerList();
+  for (const job of layerPreviewJobs) cancelAnimationFrame(job);
+  layerPreviewJobs.clear();
+}
 function layersPanel() {
+  stopLayerPreviews();
   layerPanelKey = panelContext();
   const optionsOpen = panelContent('layers').querySelector('#layer-options')?.hidden === false;
   const adjustmentsOpen = !!panelContent('layers').querySelector('.layer-adjustments')?.open;
@@ -2223,7 +2286,15 @@ function layersPanel() {
     selected = project.layers[layer],
     parent = parentLayer(project, layer),
     end = subtreeEnd(project, layer);
-  c.innerHTML = `<div class="layers-toolbar"><span>${project.layers.length} / ${LIMITS.layers} 图层</span><button id="add-group" aria-label="新建图层组">新建组</button><button id="add-layer" aria-label="新建图层">＋</button></div><div id="layer-list"></div><p class="layers-gesture-hint">轻点选择 · 再点显示选项 · 左滑快捷操作 · 按住拖动排序</p><section id="layer-options" hidden aria-label="图层选项"><div class="layer-options-head"><strong>${esc(selected.name)}</strong><button id="layer-options-close" aria-label="关闭图层选项">×</button></div><label>不透明度 <output class="row-value" id="opacity-value">${Math.round((selected.opacity / 255) * 100)}%</output><input id="opacity" aria-label="图层不透明度" type="range" min="0" max="255" value="${selected.opacity}"></label><div class="layer-option-grid"><button id="rename-layer">重命名</button><button id="layer-outline">描边</button><button id="duplicate-layer">复制</button><button id="lock-layer">${selected.locked ? '解锁' : '锁定'}</button><button id="clear-layer">清空当前帧</button><button id="layer-up">上移</button><button id="layer-down">下移</button><button id="group-layer">编组</button><button id="ungroup-layer">解散组</button><button id="delete-layer" class="danger">删除图层</button></div><details><summary>移至图层组</summary><label>目标位置<select id="layer-parent"><option value="-1">画布根目录</option>${project.layers.map((l, i) => (l.group && (i < layer || i >= end) ? `<option value="${i}">${esc(l.name)}</option>` : '')).join('')}</select></label><button id="move-to-group" class="panel-wide">移入所选位置</button></details>${selected.group && selected.isolated === false ? '<p class="help">旧版 ASE 直通组保持原作合成方式，组不透明度不可单独修改。</p>' : ''}</section>`;
+  c.innerHTML = `<div class="layers-toolbar"><span>${project.layers.length} 图层</span><button id="add-group" aria-label="新建图层组">新建组</button><button id="add-layer" aria-label="新建图层">＋</button></div><div id="layer-list"></div><p class="layers-gesture-hint">轻点选择 · 再点显示选项 · 左滑快捷操作 · 按住拖动排序</p><section id="layer-options" hidden aria-label="图层选项"><div class="layer-options-head"><strong>${esc(selected.name)}</strong><button id="layer-options-close" aria-label="关闭图层选项">×</button></div><label>不透明度 <output class="row-value" id="opacity-value">${Math.round((selected.opacity / 255) * 100)}%</output><input id="opacity" aria-label="图层不透明度" type="range" min="0" max="255" value="${selected.opacity}"></label><div class="layer-option-grid"><button id="rename-layer">重命名</button><button id="layer-outline">描边</button><button id="duplicate-layer">复制</button><button id="lock-layer">${selected.locked ? '解锁' : '锁定'}</button><button id="clear-layer">清空当前帧</button><button id="layer-up">上移</button><button id="layer-down">下移</button><button id="group-layer">编组</button><button id="ungroup-layer">解散组</button><button id="delete-layer" class="danger">删除图层</button></div><details><summary>移至图层组</summary><label>目标位置<select id="layer-parent"><option value="-1">画布根目录</option>${project.layers.map((l, i) => (l.group && (i < layer || i >= end) ? `<option value="${i}">${esc(l.name)}</option>` : '')).join('')}</select></label><button id="move-to-group" class="panel-wide">移入所选位置</button></details>${selected.group && selected.isolated === false ? '<p class="help">旧版 ASE 直通组保持原作合成方式，组不透明度不可单独修改。</p>' : ''}</section>`;
+  function showLayerOptions(open, restore = false) {
+    if (!restore && open) c.dataset.listScroll = String(c.scrollTop);
+    $('#layer-options').hidden = !open;
+    $('#layer-list').hidden = open;
+    c.querySelector('.layers-gesture-hint').hidden = open;
+    if (!restore) c.scrollTop = open ? 0 : Number(c.dataset.listScroll || 0);
+  }
+  showLayerOptions(optionsOpen, true);
   const run = (fn) => {
     try {
       editProject(fn);
@@ -2232,8 +2303,7 @@ function layersPanel() {
     }
   };
   $('#layer-outline').onclick = () => openArtwork('outline');
-  const layerPreview = document.createElement('canvas');
-  for (const i of visibleLayerOrder(project, layerOrder(project.layers))) {
+  const makeRow = (i) => {
     const l = project.layers[i],
       row = document.createElement('div');
     row.className = 'layer' + (i === layer ? ' active' : '');
@@ -2242,12 +2312,20 @@ function layersPanel() {
     row.innerHTML = `<div class="layer-swipe-actions"><button data-layer-lock>${l.locked ? '解锁' : '锁定'}</button><button data-layer-copy>复制</button><button data-layer-delete class="destructive">删除</button></div><div class="layer-face">${l.group ? `<button class="layer-fold" aria-label="${l.collapsed ? '展开' : '折叠'}图层组 ${esc(l.name)}">${l.collapsed ? '▸' : '▾'}</button>` : ''}<button class="layer-select" data-item-touch aria-pressed="${i === layer}" aria-label="选择图层 ${esc(l.name)}"><span>${esc(l.name)}<small>${l.group ? '图层组' : l.clipping ? '剪贴图层' : '普通'}${l.mask ? ' · 遮罩' : ''}${l.alphaLock ? ' · 锁透明' : ''}${layerLocked(project, i) ? ' · 已锁定' : ''}</small></span></button><button class="layer-blend" aria-label="图层 ${esc(l.name)} 不透明度">${l.blend ? BLEND_MODES[l.blend].slice(0, 2) : Math.round((l.opacity / 255) * 100) === 100 ? 'N' : Math.round((l.opacity / 255) * 100) + '%'}</button><button class="visibility" role="checkbox" aria-checked="${l.visible}" aria-label="${l.visible ? '隐藏' : '显示'}图层 ${esc(l.name)}">${l.visible ? '☑' : '□'}</button></div>`;
     if (!l.group) {
       const t = document.createElement('canvas');
-      paintBuffer(layerPreview, layerPixels(project, frame, i));
-      const ratio = Math.min(1, 72 / Math.max(project.w, project.h));
-      t.width = Math.max(1, Math.round(project.w * ratio));
-      t.height = Math.max(1, Math.round(project.h * ratio));
-      t.getContext('2d').imageSmoothingEnabled = false;
-      t.getContext('2d').drawImage(layerPreview, 0, 0, t.width, t.height);
+      t.width = t.height = 1;
+      const job = requestAnimationFrame(() => {
+        layerPreviewJobs.delete(job);
+        if (!t.isConnected) return;
+        const preview = layerPreviews.get(project, frame, i, id + ':' + dirtyVersion);
+        t.width = preview.width;
+        t.height = preview.height;
+        t.getContext('2d').putImageData(
+          new ImageData(preview.data, preview.width, preview.height),
+          0,
+          0,
+        );
+      });
+      layerPreviewJobs.add(job);
       row.querySelector('.layer-select').prepend(t);
     }
     row.querySelector('.visibility').onclick = () =>
@@ -2284,7 +2362,7 @@ function layersPanel() {
         run((p) => (p.layers[i].collapsed = !p.layers[i].collapsed));
     const select = () => {
       if (i === layer) {
-        $('#layer-options').hidden = !$('#layer-options').hidden;
+        showLayerOptions($('#layer-options').hidden);
         return;
       }
       stop();
@@ -2299,7 +2377,7 @@ function layersPanel() {
         layer = i;
         refresh();
       }
-      $('#layer-options').hidden = false;
+      showLayerOptions(true);
       $('#opacity').focus({ preventScroll: true });
     };
     row.querySelector('[data-layer-copy]').onclick = () =>
@@ -2321,9 +2399,15 @@ function layersPanel() {
       },
       drop: (destination) => run((p) => (layer = reorderBeside(p, i, Number(destination)))),
     });
-    $('#layer-list').append(row);
-  }
-  if (optionsOpen) $('#layer-options').hidden = false;
+    return row;
+  };
+  c.scrollTop = previousScroll;
+  disposeLayerList = virtualList(
+    $('#layer-list'),
+    c,
+    visibleLayerOrder(project, layerOrder(project.layers)),
+    makeRow,
+  );
   layerEffects(c, {
     project: () => project,
     layer: () => layer,
@@ -2343,13 +2427,12 @@ function layersPanel() {
       const wasEditing = editingMask();
       editProject(fn);
       if (wasEditing) maskTarget = project.layers[layer];
-      layersPanel();
     },
   });
   if (adjustmentsOpen && c.querySelector('.layer-adjustments'))
     c.querySelector('.layer-adjustments').open = true;
   c.scrollTop = previousScroll;
-  $('#layer-options-close').onclick = () => ($('#layer-options').hidden = true);
+  $('#layer-options-close').onclick = () => showLayerOptions(false);
   $('#duplicate-layer').onclick = () => run((p) => (layer = duplicateLayer(p, layer)));
   $('#clear-layer').disabled = selected.group || layerLocked(project, layer);
   $('#clear-layer').onclick = () => run((p) => editCel(p.frames[frame], layer).fill(0));
@@ -2415,14 +2498,14 @@ function capacityPanel() {
   panelContent('capacity').innerHTML = `
     <div class="capacity-panel">
       <div class="capacity-hero"><strong id="capacity-current"></strong><span>项目像素数据</span><p id="capacity-status"></p></div>
-      <div class="capacity-row"><div><span>实际像素存储</span><output id="capacity-pixel-label"></output></div><progress id="capacity-pixels" aria-label="项目像素容量" max="${LIMITS.pixels * 4}"></progress><small>32 MB 实际存储预算；压缩工程共享空白与重复单元，按需解码，缓存另计 ≤16 MiB。</small></div>
+      <div class="capacity-row"><div><span>实际像素存储</span><output id="capacity-pixel-label"></output></div><progress id="capacity-pixels" aria-label="项目像素容量" max="${LIMITS.projectBytes}"></progress><small>实际存储预算 ${mebibytes(LIMITS.projectBytes)}；空白与重复单元共享，按需解码，缓存另计 ≤16 MiB。</small></div>
       <div class="capacity-row"><div><span>图层</span><output id="capacity-layers"></output></div><small id="capacity-more-layers"></small></div>
       <div class="capacity-row"><div><span>动画帧</span><output id="capacity-frames"></output></div><small id="capacity-more-frames"></small></div>
       <div class="capacity-row"><div><span>撤销与重做</span><output id="capacity-history"></output></div><progress id="capacity-history-meter" aria-label="历史像素数据预算" max="${LIMITS.historyBytes}"></progress><small>最多 ${LIMITS.historyEntries} 步，共用 ${mebibytes(LIMITS.historyBytes)}。达到任一上限，会释放最早的历史记录。</small></div>
       <div class="capacity-row"><div><span>选区历史</span><output>上限 ${mebibytes(LIMITS.selectionHistoryBytes)}</output></div><small>最多 ${LIMITS.selectionHistoryEntries} 次操作，遮罩与取样记录共用预算；切换帧、图层、作品或修改像素后重置。</small></div>
       <div class="capacity-row"><div><span>帧预览缓存</span><output id="capacity-preview"></output></div><small>上限 ${mebibytes(LIMITS.previewBytes)}，按需释放后可重新生成。</small></div>
       <div class="capacity-row"><div><span>参考小窗</span><output>最多 ${LIMITS.referenceWindows} 个</output></div><small>每张参考图最多 ${mebibytes(LIMITS.referencePixels * 4)} 像素数据；较大图片等比缩小。窗口显示缓冲同样限制为 ${mebibytes(LIMITS.referencePixels * 4)} / 个，关闭即释放。参考图仅用于当前会话，不写入作品。</small></div>
-      <p class="capacity-note">画布最大 ${LIMITS.dimension} × ${LIMITS.dimension}。单个导入文件最多 60 MiB。PNG 输出像素预算 64 MiB，超限倍率不可选。以上是画室的数据预算；设备实际内存还包括图像转换、显示纹理及系统开销。</p>
+      <p class="capacity-note">画布宽高与图层数量不设固定上限。单张像素面编辑缓冲最多 ${mebibytes(LIMITS.planeBytes)}，最终可用尺寸也受浏览器与设备限制。工程文件最多 ${mebibytes(LIMITS.projectFileBytes)}；其他导入文件最多 60 MiB。PNG 输出像素预算 64 MiB，超限倍率不可选。以上是画室的数据预算；设备实际内存还包括图像转换、显示纹理及系统开销。</p>
       <p class="capacity-note">容量接近上限时，可减少帧或图层，或导出备份后拆成多个作品。作品保存在此设备，建议定期导出 .pixel 备份。</p>
       <button id="capacity-export" class="panel-wide">保存与导出 <span>›</span></button>
     </div>`;
@@ -2437,7 +2520,7 @@ function updateCapacity() {
     indicator.dataset.warning = String(usage.ratio >= 0.8);
     indicator.setAttribute(
       'aria-label',
-      `查看画布容量与限制，已用 ${Math.round((usage.bytes / (LIMITS.pixels * 4)) * 100)}% 像素容量`,
+      `查看画布容量与限制，已用 ${Math.round((usage.bytes / LIMITS.projectBytes) * 100)}% 像素容量`,
     );
   }
   if (!toolWindows.has('capacity')) return;
@@ -2452,24 +2535,17 @@ function updateCapacity() {
     usage.ratio >= 1
       ? '已达到一项容量上限。减少帧或图层后可继续添加。'
       : usage.ratio >= 0.8
-        ? '容量接近上限，请留意剩余图层与帧数。'
+        ? '容量接近上限，请留意实际存储与帧数。'
         : '容量充足，可以继续创作。',
   );
-  set('#capacity-pixel-label', `${mebibytes(usage.bytes)} / ${mebibytes(LIMITS.pixels * 4)}`);
+  set('#capacity-pixel-label', `${mebibytes(usage.bytes)} / ${mebibytes(LIMITS.projectBytes)}`);
   $('#capacity-pixels').value = usage.bytes;
-  set('#capacity-layers', `${project.layers.length} / ${LIMITS.layers}`);
+  set('#capacity-layers', `${project.layers.length} · 不设数量上限`);
   set('#capacity-frames', `${project.frames.length} / ${LIMITS.frames}`);
-  set(
-    '#capacity-more-layers',
-    usage.compact
-      ? '压缩工程按实际新增像素计算容量，空白单元共享。'
-      : `按当前画布与帧数，还可添加 ${usage.moreLayers} 个图层。`,
-  );
+  set('#capacity-more-layers', '按实际像素存储计算容量，空白与重复单元共享。');
   set(
     '#capacity-more-frames',
-    usage.compact
-      ? `解码缓存 ${mebibytes(decodeCacheBytes())} / 16 MiB；逻辑展开 ${mebibytes(usage.logicalBytes)}。`
-      : `按当前画布与图层数，还可添加 ${usage.moreFrames} 帧。`,
+    `还可添加 ${usage.moreFrames} 帧；解码缓存 ${mebibytes(decodeCacheBytes())} / 16 MiB。`,
   );
   set('#capacity-history', `${history.count} 步 · ${mebibytes(history.bytes)}`);
   $('#capacity-history-meter').value = history.bytes;
@@ -2495,7 +2571,7 @@ function settingsPanel() {
     <section class="setting-group"><h3>画室</h3>
       <button id="settings-export" class="panel-wide">分享与导出 <span>项目 · 图片 · 动画 ›</span></button><button id="settings-plugins" class="panel-wide">插件工作台 <span>5 个扩展 · ›</span></button>
       <button id="install-help" class="panel-wide">添加到主屏幕 <span>全屏使用 · ›</span></button>
-      <button id="check-update" class="panel-wide">检查更新 <span>v0.15.1</span></button>
+      <button id="check-update" class="panel-wide">检查更新 <span>v0.16.0</span></button>
     </section>`;
   editorIntegration.settings(panelContent('settings'));
   document
@@ -2642,8 +2718,14 @@ function saveCurrent() {
     .then(async () => {
       try {
         if (!projectStore) throw Error('本地存储不可用');
-        const c = thumb(p, 0),
-          preview = c.toDataURL('image/png');
+        const source = thumb(p, 0),
+          c = document.createElement('canvas'),
+          scale = Math.min(1, 256 / Math.max(p.w, p.h));
+        c.width = Math.max(1, Math.round(p.w * scale));
+        c.height = Math.max(1, Math.round(p.h * scale));
+        c.getContext('2d').imageSmoothingEnabled = false;
+        c.getContext('2d').drawImage(source, 0, 0, c.width, c.height);
+        const preview = c.toDataURL('image/png');
         await storeRecord({ id: key, project: p, preview, updated: Date.now() });
         try {
           localStorage.setItem('pixel-studio-current', key);
@@ -2664,6 +2746,7 @@ function saveCurrent() {
 let switchingProject = false;
 async function loadProject(p, key = crypto.randomUUID()) {
   validate(p);
+  checkCanvasSupport(p.w, p.h);
   if (stroke || switchingProject) return false;
   switchingProject = true;
   const wasInert = document.body.inert;
@@ -2677,6 +2760,7 @@ async function loadProject(p, key = crypto.randomUUID()) {
     if (savedVersion !== dirtyVersion && !(await saveCurrent())) return false;
     selection = null;
     project = p;
+    layerPreviews.clear();
     id = key;
     frame = 0;
     layer = p.layers.length - 1;
@@ -2762,11 +2846,15 @@ $('#cancel-new').onclick = () => hideDialog($('#new-dialog'));
 function newCapacity() {
   const w = Number($('#new-form [name=width]').value),
     h = Number($('#new-form [name=height]').value);
-  const slots = Math.floor(LIMITS.pixels / (w * h));
-  $('#new-capacity-note').textContent =
-    w > 0 && h > 0 && w <= LIMITS.dimension && h <= LIMITS.dimension
-      ? `${w} × ${h} · 每层每帧 ${mebibytes(w * h * 4)}。单帧最多 ${Math.min(LIMITS.layers, slots)} 层；单层最多 ${Math.min(LIMITS.frames, slots)} 帧，共用 800 万像素预算。`
-      : `宽高范围 1–${LIMITS.dimension}，共用 800 万像素预算。`;
+  try {
+    canvasPixels(w, h);
+    $('#new-capacity-note').textContent =
+      `${w} × ${h} · 单张像素面 ${mebibytes(w * h * 4)}。图层数量和宽高不设固定上限；编辑缓冲预算 ${mebibytes(LIMITS.planeBytes)}，实际可用尺寸取决于浏览器与设备。`;
+    $('#new-form button[type=submit]').disabled = false;
+  } catch (error) {
+    $('#new-capacity-note').textContent = error.message;
+    $('#new-form button[type=submit]').disabled = true;
+  }
 }
 $('#new-form').addEventListener('input', newCapacity);
 $$('[data-size]').forEach(
@@ -2779,14 +2867,18 @@ $$('[data-size]').forEach(
 );
 $('#new-form').onsubmit = async (e) => {
   e.preventDefault();
-  const data = new FormData(e.target),
-    p = blank(
-      Number(data.get('width')),
-      Number(data.get('height')),
-      String(data.get('name')).trim() || '未命名作品',
-    );
-  await hideDialog($('#new-dialog'));
-  await loadProject(p);
+  try {
+    const data = new FormData(e.target),
+      p = blank(
+        Number(data.get('width')),
+        Number(data.get('height')),
+        String(data.get('name')).trim() || '未命名作品',
+      );
+    await hideDialog($('#new-dialog'));
+    await loadProject(p);
+  } catch (error) {
+    toast(error.message);
+  }
 };
 $('#new-demo').onclick = () => loadProject(demo());
 let exampleLoad = null;
