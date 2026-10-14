@@ -1,3 +1,4 @@
+import { editCel } from './cel-storage.js';
 import { line } from './engine.js';
 import { layerLocked } from './animation-edit.js';
 
@@ -9,10 +10,11 @@ const rgba = (hex) =>
 
 /** Integer source coordinates and bounded work. Polygon coverage avoids double alpha on edges. */
 export function drawBatch(p, args, selection) {
-  const l = p.layers[args.layer],
-    cel = p.frames[args.frame]?.cels[args.layer];
+  const l = p.layers[args.layer];
+  let cel = p.frames[args.frame]?.cels[args.layer];
   if (!l || !cel || l.group) throw Error('请选择有效的像素图层与帧');
   if (layerLocked(p, args.layer)) throw Error('图层或父级已锁定');
+  cel = editCel(p.frames[args.frame], args.layer);
   const estimated = args.commands.reduce(
     (n, c) =>
       n +

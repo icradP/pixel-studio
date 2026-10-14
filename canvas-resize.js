@@ -1,3 +1,4 @@
+import { readCel } from './cel-storage.js';
 import { LIMITS } from './limits.js';
 import { validate, cloneLayer } from './engine.js';
 import { moveSceneCanvas } from './procedural-model.js';
@@ -45,7 +46,8 @@ export function expandCanvas(project, sides) {
   if (!next.changed) throw Error('请至少扩展一个方向。');
   const frames = project.frames.map((frame) => ({
     ...frame,
-    cels: frame.cels.map((source) => {
+    cels: frame.cels.map((input) => {
+      const source = readCel(input);
       const pixels = new Uint8ClampedArray(next.w * next.h * 4);
       for (let y = 0; y < project.h; y++)
         pixels.set(

@@ -1,4 +1,5 @@
-import { composite, serialize } from './engine.js';
+import { encodeProjectFile } from './project-file.js';
+import { composite } from './engine.js';
 import { compileScene, evaluateScene } from './procedural.js';
 import { LIMITS } from './limits.js';
 
@@ -85,7 +86,8 @@ export async function preview(p, args, host, check) {
 export async function exportDocument(p, args, host, check) {
   let blob, extension;
   if (args.format === 'pixel') {
-    blob = new Blob([serialize(p)], { type: 'application/json' });
+    blob = await encodeProjectFile(p);
+    check();
     extension = '.pixel';
   } else {
     const from = args.from ?? (args.format === 'png' ? host.snapshot().frame : 0),

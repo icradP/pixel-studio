@@ -406,3 +406,38 @@ button.gallery-example {
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
+
+.artwork-panel {
+  width: min(420px, calc(100vw - 24px));
+}
+#artwork-preview {
+  width: 100%;
+  max-height: 260px;
+  object-fit: contain;
+  touch-action: none;
+  image-rendering: pixelated;
+  background: repeating-conic-gradient(#33343a 0% 25%, #292a30 0% 50%) 0 0 / 16px 16px;
+  border-radius: 10px;
+}
+#text-content {
+  width: 100%;
+  resize: vertical;
+  min-height: 72px;
+  background: #17181c;
+  color: var(--text, #eee);
+  border: 0;
+  border-radius: 8px;
+  padding: 10px;
+  font: 14px/1.5 system-ui;
+}
+.artwork-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 10px 0;
+  font-size: 12px;
+}
+.artwork-panel input[type='number'] {
+  width: 100%;
+  min-width: 0;
+}

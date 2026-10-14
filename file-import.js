@@ -9,7 +9,7 @@ export async function importKind(file) {
     name = file.name || '';
   if (head.length >= 128 && head[4] === 0xe0 && head[5] === 0xa5) return 'ase';
   if (/\.(ase|aseprite)$/i.test(name)) return 'ase'; // Parser reports corrupt ASEs.
-  if (/\.(pixel|json)$/i.test(name)) return 'project';
+  if ((head[0] === 0x1f && head[1] === 0x8b) || /\.(pixel|json)$/i.test(name)) return 'project';
   const match = (offset, bytes) => bytes.every((v, i) => head[offset + i] === v);
   if (
     match(0, [137, 80, 78, 71, 13, 10, 26, 10]) ||

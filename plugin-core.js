@@ -1,3 +1,4 @@
+import { readCel, cloneCel, editCel } from './cel-storage.js';
 // Independent browser implementations of publicly described pixel-art workflows.
 // No original Aseprite extension code or assets are bundled. See plugin-sources.txt.
 import { clone, validate, composite, rgba, line, MAX_PIXELS } from './engine.js';
@@ -16,7 +17,7 @@ export function addRasterLayer(p, name, cels) {
   const out = clone(p);
   out.layers.push({ name, visible: true, opacity: 255 });
   out.frames.forEach((f, i) =>
-    f.cels.push(cels[i] ? new Uint8ClampedArray(cels[i]) : new Uint8ClampedArray(p.w * p.h * 4)),
+    f.cels.push(cels[i] ? cloneCel(cels[i]) : new Uint8ClampedArray(p.w * p.h * 4)),
   );
   return validate(out);
 }
@@ -335,13 +336,13 @@ export function extractMasked(p, frame, layer, mask, merge = false) {
   if (!maskBounds(mask, p.w, p.h)) throw Error('未选中像素。');
   const src = merge
       ? composite({ ...p, layers: p.layers.slice(0, layer + 1) }, frame)
-      : p.frames[frame].cels[layer],
+      : readCel(p.frames[frame].cels[layer]),
     cel = new Uint8ClampedArray(src.length);
   for (let i = 0; i < mask.length; i++) if (mask[i]) cel.set(src.subarray(i * 4, i * 4 + 4), i * 4);
   const out = addRasterLayer(p, merge ? '魔法合并' : '魔法提取', { [frame]: cel });
   if (!merge)
     for (let i = 0; i < mask.length; i++)
-      if (mask[i]) out.frames[frame].cels[layer].fill(0, i * 4, i * 4 + 4);
+      if (mask[i]) editCel(out.frames[frame], layer).fill(0, i * 4, i * 4 + 4);
   return out;
 }
 const gcd = (a, b) => (b ? gcd(b, a % b) : a);
@@ -360,7 +361,7 @@ export function loopLayers(p, periods, duration = 120) {
     layers: p.layers.map((l) => ({ ...l })),
     frames: Array.from({ length: count }, (_, f) => ({
       duration,
-      cels: p.layers.map((_, l) => new Uint8ClampedArray(p.frames[f % periods[l]].cels[l])),
+      cels: p.layers.map((_, l) => cloneCel(p.frames[f % periods[l]].cels[l])),
     })),
   };
   if (out.tags)
@@ -419,7 +420,7 @@ export function importAnimation(
       offset = path === 'sine' ? amplitude * Math.sin((i / count) * Math.PI * 2 * cycles) : 0,
       dx = Math.round(x + (path === 'static' ? 0 : (endX - x) * t)),
       dy = Math.round(y + (path === 'static' ? 0 : (endY - y) * t) + offset),
-      src = sourceLayer < 0 ? composite(source, f) : source.frames[f].cels[sourceLayer],
+      src = sourceLayer < 0 ? composite(source, f) : readCel(source.frames[f].cels[sourceLayer]),
       pixels = crop ? new Uint8ClampedArray(src.length) : src;
     if (crop) {
       for (let cy = crop.y; cy < crop.y + crop.h; cy++)

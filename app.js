@@ -1,3 +1,12 @@
+import { encodeProjectFile, decodeProjectFile } from './project-file.js';
+import {
+  readCel,
+  editCel,
+  cloneCel,
+  emptyCel,
+  decodeCacheBytes,
+  compactProject,
+} from './cel-storage.js';
 import { pressureResponse, applyGradient, mixPaintEffect, paintMask } from './paint.js';
 import { BLEND_MODES, layerPixels } from './layer-effects.js';
 import { layerEffects, gradientSettings } from './painting-ui.js';
@@ -45,8 +54,6 @@ import {
   blank,
   clone,
   validate,
-  serialize,
-  deserialize,
   composite,
   rgba,
   line,
@@ -407,7 +414,7 @@ function capacity(layers, frames) {
   if (
     layers > LIMITS.layers ||
     frames > LIMITS.frames ||
-    project.w * project.h * layers * frames > MAX_PIXELS
+    (project.storage !== 'packed' && project.w * project.h * layers * frames > MAX_PIXELS)
   ) {
     toast('达到项目容量上限，请另存后减少图层或帧');
     return false;
@@ -429,6 +436,7 @@ function commitProject(
     exitAnimation = false,
   } = {},
 ) {
+  if (next.storage === 'packed' && !sceneOnly) next = compactProject(next);
   validate(next);
   if (!checkpointed) {
     if (sceneOnly) history.checkpointScene(project.procedural);
@@ -477,6 +485,7 @@ function redo() {
 }
 let changedFrames = null;
 function changed(affected = null, sceneOnly = false) {
+  if (project.storage === 'packed' && !sceneOnly) project = compactProject(project);
   if (!sceneOnly) artRevision++;
   else affected = [];
   const previous = id + ':' + dirtyVersion;
@@ -657,6 +666,7 @@ function draw() {
   ctx.lineWidth = 1 / camera.scale;
   ctx.strokeRect(0, 0, project.w, project.h);
   if (procedural?.active) procedural.draw(ctx, camera.scale);
+  else if (artworkWindow?.editing) artworkWindow.draw(ctx, camera.scale);
   else drawSelection();
   ctx.restore();
   $('#zoom-label').textContent = Math.round(camera.scale * 100) + '%';
@@ -1014,7 +1024,7 @@ $('#duplicate-frame').onclick = () => {
   shiftTags(project, frame + 1);
   project.frames.splice(frame + 1, 0, {
     duration: project.frames[frame].duration,
-    cels: project.frames[frame].cels.map((c) => new Uint8ClampedArray(c)),
+    cels: project.frames[frame].cels.map(cloneCel),
   });
   frame++;
   changed();
@@ -1026,7 +1036,11 @@ $('#add-frame').onclick = () => {
   shiftTags(project, frame + 1);
   project.frames.splice(frame + 1, 0, {
     duration: 120,
-    cels: project.layers.map(() => new Uint8ClampedArray(project.w * project.h * 4)),
+    cels: project.layers.map(() =>
+      project.storage === 'packed'
+        ? emptyCel(project.w * project.h * 4)
+        : new Uint8ClampedArray(project.w * project.h * 4),
+    ),
   });
   frame++;
   changed();
@@ -1190,7 +1204,9 @@ function gradientPanel() {
 }
 function gradientStroke(end) {
   const pixels = applyGradient(
-    stroke.maskEditing ? stroke.before.layers[layer].mask : stroke.before.frames[frame].cels[layer],
+    stroke.maskEditing
+      ? stroke.before.layers[layer].mask
+      : readCel(stroke.before.frames[frame].cels[layer]),
     project.w,
     project.h,
     stroke.start,
@@ -1217,7 +1233,7 @@ function stamp(x, y, e) {
         )
       : brush.size;
   stampBrush({
-    pixels: project.frames[frame].cels[layer],
+    pixels: editCel(project.frames[frame], layer),
     pressureFactor:
       brush.opacityPressure && e.pointerType === 'pen'
         ? pressureResponse(e.pressure, brush.pressureCurve)
@@ -1237,7 +1253,7 @@ function stamp(x, y, e) {
     selection: ['select', 'select-erase'].includes(stroke?.magic?.mode) ? null : selection,
     mask: stroke?.magic ? stroke.mask : null,
     erase: tool === 'eraser',
-    base: stroke?.before.frames[frame].cels[layer],
+    base: readCel(stroke?.before.frames[frame].cels[layer]),
   });
 }
 function shapeStroke(a, b, e) {
@@ -1269,6 +1285,11 @@ let penActive = false,
   gestureCamera = null;
 function beginStroke(e) {
   if (stroke || $('dialog[open]')) return;
+  if (artworkWindow?.editing && e.button !== 1) {
+    if (artworkWindow.begin(e, positionFloat(e)))
+      stroke = { artworkAction: true, id: e.pointerId, type: e.pointerType };
+    return;
+  }
   if (procedural?.active && e.button === 1) {
     procedural.pause();
     stroke = {
@@ -1365,16 +1386,16 @@ function beginStroke(e) {
     return;
   }
   if (tool === 'fill') {
-    flood(project.frames[frame].cels[layer], project.w, project.h, p.x, p.y, rgba(color));
+    flood(editCel(project.frames[frame], layer), project.w, project.h, p.x, p.y, rgba(color));
     if (selection)
       for (let i = 0; i < selection.length; i++)
         if (!selection[i])
-          project.frames[frame].cels[layer].set(
-            stroke.before.frames[frame].cels[layer].subarray(i * 4, i * 4 + 4),
+          editCel(project.frames[frame], layer).set(
+            readCel(stroke.before.frames[frame].cels[layer]).subarray(i * 4, i * 4 + 4),
             i * 4,
           );
-    const before = stroke.before.frames[frame].cels[layer],
-      filled = project.frames[frame].cels[layer];
+    const before = readCel(stroke.before.frames[frame].cels[layer]),
+      filled = editCel(project.frames[frame], layer);
     if (stroke.maskEditing) {
       const gray = new Uint8ClampedArray(project.w * project.h * 4),
         mask = project.layers[layer].mask;
@@ -1400,6 +1421,10 @@ function beginStroke(e) {
 }
 function moveStroke(e) {
   if (!stroke || stroke.id !== e.pointerId) return;
+  if (stroke.artworkAction) {
+    artworkWindow.move(e, positionFloat(e));
+    return;
+  }
   if (stroke.proceduralAction) {
     procedural.move(e, positionFloat(e));
     return;
@@ -1432,7 +1457,7 @@ function moveStroke(e) {
     if (['line', 'rect', 'ellipse'].includes(tool)) {
       stroke.mask.fill(0);
       project.frames[frame].cels[layer] = new Uint8ClampedArray(
-        stroke.before.frames[frame].cels[layer],
+        readCel(stroke.before.frames[frame].cels[layer]),
       );
       shapeStroke(stroke.start, p, e);
     } else if (tool !== 'fill')
@@ -1445,7 +1470,7 @@ function moveStroke(e) {
 function magicPreview() {
   if (!stroke?.magic) return;
   const output = magicPixels(
-    stroke.before.frames[frame].cels[layer],
+    readCel(stroke.before.frames[frame].cels[layer]),
     project.w,
     project.h,
     stroke.mask,
@@ -1454,19 +1479,27 @@ function magicPreview() {
     palette,
   );
   mixStrokeOpacity(
-    stroke.before.frames[frame].cels[layer],
+    readCel(stroke.before.frames[frame].cels[layer]),
     output,
     stroke.brush.opacity,
     stroke.brush.opacityPressure ? stroke.coverage : null,
   );
   if (project.layers[layer].alphaLock) {
-    const locked = mixPaintEffect(stroke.before.frames[frame].cels[layer], output, 1, true);
+    const locked = mixPaintEffect(
+      readCel(stroke.before.frames[frame].cels[layer]),
+      output,
+      1,
+      true,
+    );
     output.set(locked);
   }
   if (selection && !['select', 'select-erase'].includes(stroke.magic.mode))
     for (let i = 0; i < selection.length; i++)
       if (!selection[i])
-        output.set(stroke.before.frames[frame].cels[layer].subarray(i * 4, i * 4 + 4), i * 4);
+        output.set(
+          readCel(stroke.before.frames[frame].cels[layer]).subarray(i * 4, i * 4 + 4),
+          i * 4,
+        );
   project.frames[frame].cels[layer] = output;
 }
 function finishStroke(cancel = false) {
@@ -1477,6 +1510,10 @@ function finishStroke(cancel = false) {
   if (!stroke) return;
   const current = stroke;
   stroke = null;
+  if (current.artworkAction) {
+    artworkWindow.end(cancel);
+    return;
+  }
   if (current.proceduralAction) {
     procedural.end(cancel);
     return;
@@ -1585,7 +1622,7 @@ function armHold(e) {
 const shapePreview = new ShapePreview((e) => {
   const current = stroke;
   if (!current?.before) return;
-  project.frames[frame].cels[layer].set(current.before.frames[frame].cels[layer]);
+  editCel(project.frames[frame], layer).set(readCel(current.before.frames[frame].cels[layer]));
   current.mask.fill(0);
   current.coverage.fill(0);
   if (current.maskEditing) project.layers[layer].mask.set(current.before.layers[layer].mask);
@@ -2000,6 +2037,47 @@ async function launchPlugins(initialPlugin = null) {
     initialPlugin,
   );
 }
+let artworkWindow = null;
+async function openArtwork(kind) {
+  if (stroke || selectionUI?.transforming) return toast('请先完成笔画或选区变换');
+  if (kind === 'outline' && (project.layers[layer].group || layerLocked(project, layer)))
+    return toast('请选择未锁定的像素图层');
+  procedural?.leave();
+  toolWindows.closeAll();
+  artworkWindow?.close();
+  const { openArtworkPanel } = await import('./artwork-panel.js');
+  artworkWindow = openArtworkPanel(
+    {
+      snapshot: () => ({
+        project,
+        frame,
+        layer,
+        mask: selection ? new Uint8Array(selection) : null,
+        context: panelContext(),
+      }),
+      color: () => color,
+      render,
+      scale: () => camera.scale,
+      context: panelContext,
+      apply: (pixels, name, context) => {
+        if (context !== panelContext()) throw Error('作品已改变，请重新打开编辑面板');
+        const next = clone(project),
+          index = addLayer(next, -1, false);
+        next.layers[index].name = name;
+        next.frames[frame].cels[index] = new Uint8ClampedArray(pixels);
+        commitProject(next, { focus: { frame, layer: index } });
+        selection = Uint8Array.from({ length: project.w * project.h }, (_, i) =>
+          pixels[i * 4 + 3] ? 1 : 0,
+        );
+        chooseTool('select');
+        selectionUI.show();
+        render();
+        toast('已添加独立像素图层，可继续变换');
+      },
+    },
+    kind,
+  );
+}
 function toolsPanel() {
   panelContent('tools').innerHTML =
     '<p class="panel-intro">选择一个工具，回到画布开始创作。</p><div class="tool-grid">' +
@@ -2029,8 +2107,10 @@ function toolsPanel() {
           '</span></button>',
       )
       .join('') +
-    '</div><button id="tools-expand" class="panel-wide">扩展画布 <span>四方向 · ›</span></button><button id="open-plugins" class="panel-wide">✦ 插件工作台 · 5 个扩展</button>';
+    '</div><button id="tools-text" class="panel-wide">像素文字 <span>中日英 · 横竖排 · 透视 ›</span></button><button id="tools-outline" class="panel-wide">像素描边 <span>选区 / 当前图层 ›</span></button><button id="tools-expand" class="panel-wide">扩展画布 <span>四方向 · ›</span></button><button id="open-plugins" class="panel-wide">✦ 插件工作台 · 5 个扩展</button>';
   $('#open-plugins').onclick = launchPlugins;
+  $('#tools-text').onclick = () => openArtwork('text');
+  $('#tools-outline').onclick = () => openArtwork('outline');
   $('#tools-expand').onclick = (event) => openPanel('expand', event.currentTarget);
   $$('[data-pick-tool]').forEach(
     (b) =>
@@ -2143,7 +2223,7 @@ function layersPanel() {
     selected = project.layers[layer],
     parent = parentLayer(project, layer),
     end = subtreeEnd(project, layer);
-  c.innerHTML = `<div class="layers-toolbar"><span>${project.layers.length} / ${LIMITS.layers} 图层</span><button id="add-group" aria-label="新建图层组">新建组</button><button id="add-layer" aria-label="新建图层">＋</button></div><div id="layer-list"></div><p class="layers-gesture-hint">轻点选择 · 再点显示选项 · 左滑快捷操作 · 按住拖动排序</p><section id="layer-options" hidden aria-label="图层选项"><div class="layer-options-head"><strong>${esc(selected.name)}</strong><button id="layer-options-close" aria-label="关闭图层选项">×</button></div><label>不透明度 <output class="row-value" id="opacity-value">${Math.round((selected.opacity / 255) * 100)}%</output><input id="opacity" aria-label="图层不透明度" type="range" min="0" max="255" value="${selected.opacity}"></label><div class="layer-option-grid"><button id="rename-layer">重命名</button><button id="duplicate-layer">复制</button><button id="lock-layer">${selected.locked ? '解锁' : '锁定'}</button><button id="clear-layer">清空当前帧</button><button id="layer-up">上移</button><button id="layer-down">下移</button><button id="group-layer">编组</button><button id="ungroup-layer">解散组</button><button id="delete-layer" class="danger">删除图层</button></div><details><summary>移至图层组</summary><label>目标位置<select id="layer-parent"><option value="-1">画布根目录</option>${project.layers.map((l, i) => (l.group && (i < layer || i >= end) ? `<option value="${i}">${esc(l.name)}</option>` : '')).join('')}</select></label><button id="move-to-group" class="panel-wide">移入所选位置</button></details>${selected.group && selected.isolated === false ? '<p class="help">旧版 ASE 直通组保持原作合成方式，组不透明度不可单独修改。</p>' : ''}</section>`;
+  c.innerHTML = `<div class="layers-toolbar"><span>${project.layers.length} / ${LIMITS.layers} 图层</span><button id="add-group" aria-label="新建图层组">新建组</button><button id="add-layer" aria-label="新建图层">＋</button></div><div id="layer-list"></div><p class="layers-gesture-hint">轻点选择 · 再点显示选项 · 左滑快捷操作 · 按住拖动排序</p><section id="layer-options" hidden aria-label="图层选项"><div class="layer-options-head"><strong>${esc(selected.name)}</strong><button id="layer-options-close" aria-label="关闭图层选项">×</button></div><label>不透明度 <output class="row-value" id="opacity-value">${Math.round((selected.opacity / 255) * 100)}%</output><input id="opacity" aria-label="图层不透明度" type="range" min="0" max="255" value="${selected.opacity}"></label><div class="layer-option-grid"><button id="rename-layer">重命名</button><button id="layer-outline">描边</button><button id="duplicate-layer">复制</button><button id="lock-layer">${selected.locked ? '解锁' : '锁定'}</button><button id="clear-layer">清空当前帧</button><button id="layer-up">上移</button><button id="layer-down">下移</button><button id="group-layer">编组</button><button id="ungroup-layer">解散组</button><button id="delete-layer" class="danger">删除图层</button></div><details><summary>移至图层组</summary><label>目标位置<select id="layer-parent"><option value="-1">画布根目录</option>${project.layers.map((l, i) => (l.group && (i < layer || i >= end) ? `<option value="${i}">${esc(l.name)}</option>` : '')).join('')}</select></label><button id="move-to-group" class="panel-wide">移入所选位置</button></details>${selected.group && selected.isolated === false ? '<p class="help">旧版 ASE 直通组保持原作合成方式，组不透明度不可单独修改。</p>' : ''}</section>`;
   const run = (fn) => {
     try {
       editProject(fn);
@@ -2151,6 +2231,7 @@ function layersPanel() {
       toast(e.message);
     }
   };
+  $('#layer-outline').onclick = () => openArtwork('outline');
   const layerPreview = document.createElement('canvas');
   for (const i of visibleLayerOrder(project, layerOrder(project.layers))) {
     const l = project.layers[i],
@@ -2271,7 +2352,7 @@ function layersPanel() {
   $('#layer-options-close').onclick = () => ($('#layer-options').hidden = true);
   $('#duplicate-layer').onclick = () => run((p) => (layer = duplicateLayer(p, layer)));
   $('#clear-layer').disabled = selected.group || layerLocked(project, layer);
-  $('#clear-layer').onclick = () => run((p) => p.frames[frame].cels[layer].fill(0));
+  $('#clear-layer').onclick = () => run((p) => editCel(p.frames[frame], layer).fill(0));
   $('#lock-layer').onclick = () => run((p) => (p.layers[layer].locked = !p.layers[layer].locked));
   $('#add-layer').onclick = () => run((p) => (layer = addLayer(p, layer)));
   $('#add-group').onclick = () => run((p) => (layer = addLayer(p, layer, true)));
@@ -2334,7 +2415,7 @@ function capacityPanel() {
   panelContent('capacity').innerHTML = `
     <div class="capacity-panel">
       <div class="capacity-hero"><strong id="capacity-current"></strong><span>项目像素数据</span><p id="capacity-status"></p></div>
-      <div class="capacity-row"><div><span>像素容量</span><output id="capacity-pixel-label"></output></div><progress id="capacity-pixels" aria-label="项目像素容量" max="${LIMITS.pixels}"></progress><small>画布宽 × 高 × 图层 × 帧；图层组也计入容量。</small></div>
+      <div class="capacity-row"><div><span>实际像素存储</span><output id="capacity-pixel-label"></output></div><progress id="capacity-pixels" aria-label="项目像素容量" max="${LIMITS.pixels * 4}"></progress><small>32 MB 实际存储预算；压缩工程共享空白与重复单元，按需解码，缓存另计 ≤16 MiB。</small></div>
       <div class="capacity-row"><div><span>图层</span><output id="capacity-layers"></output></div><small id="capacity-more-layers"></small></div>
       <div class="capacity-row"><div><span>动画帧</span><output id="capacity-frames"></output></div><small id="capacity-more-frames"></small></div>
       <div class="capacity-row"><div><span>撤销与重做</span><output id="capacity-history"></output></div><progress id="capacity-history-meter" aria-label="历史像素数据预算" max="${LIMITS.historyBytes}"></progress><small>最多 ${LIMITS.historyEntries} 步，共用 ${mebibytes(LIMITS.historyBytes)}。达到任一上限，会释放最早的历史记录。</small></div>
@@ -2356,7 +2437,7 @@ function updateCapacity() {
     indicator.dataset.warning = String(usage.ratio >= 0.8);
     indicator.setAttribute(
       'aria-label',
-      `查看画布容量与限制，已用 ${Math.round((usage.pixels / LIMITS.pixels) * 100)}% 像素容量`,
+      `查看画布容量与限制，已用 ${Math.round((usage.bytes / (LIMITS.pixels * 4)) * 100)}% 像素容量`,
     );
   }
   if (!toolWindows.has('capacity')) return;
@@ -2374,12 +2455,22 @@ function updateCapacity() {
         ? '容量接近上限，请留意剩余图层与帧数。'
         : '容量充足，可以继续创作。',
   );
-  set('#capacity-pixel-label', `${(usage.pixels / 10000).toFixed(1)} / 800 万`);
-  $('#capacity-pixels').value = usage.pixels;
+  set('#capacity-pixel-label', `${mebibytes(usage.bytes)} / ${mebibytes(LIMITS.pixels * 4)}`);
+  $('#capacity-pixels').value = usage.bytes;
   set('#capacity-layers', `${project.layers.length} / ${LIMITS.layers}`);
   set('#capacity-frames', `${project.frames.length} / ${LIMITS.frames}`);
-  set('#capacity-more-layers', `按当前画布与帧数，还可添加 ${usage.moreLayers} 个图层。`);
-  set('#capacity-more-frames', `按当前画布与图层数，还可添加 ${usage.moreFrames} 帧。`);
+  set(
+    '#capacity-more-layers',
+    usage.compact
+      ? '压缩工程按实际新增像素计算容量，空白单元共享。'
+      : `按当前画布与帧数，还可添加 ${usage.moreLayers} 个图层。`,
+  );
+  set(
+    '#capacity-more-frames',
+    usage.compact
+      ? `解码缓存 ${mebibytes(decodeCacheBytes())} / 16 MiB；逻辑展开 ${mebibytes(usage.logicalBytes)}。`
+      : `按当前画布与图层数，还可添加 ${usage.moreFrames} 帧。`,
+  );
   set('#capacity-history', `${history.count} 步 · ${mebibytes(history.bytes)}`);
   $('#capacity-history-meter').value = history.bytes;
   set('#capacity-preview', mebibytes(frameCache.size * project.w * project.h * 4));
@@ -2404,7 +2495,7 @@ function settingsPanel() {
     <section class="setting-group"><h3>画室</h3>
       <button id="settings-export" class="panel-wide">分享与导出 <span>项目 · 图片 · 动画 ›</span></button><button id="settings-plugins" class="panel-wide">插件工作台 <span>5 个扩展 · ›</span></button>
       <button id="install-help" class="panel-wide">添加到主屏幕 <span>全屏使用 · ›</span></button>
-      <button id="check-update" class="panel-wide">检查更新 <span>v0.14.1</span></button>
+      <button id="check-update" class="panel-wide">检查更新 <span>v0.15.0</span></button>
     </section>`;
   editorIntegration.settings(panelContent('settings'));
   document
@@ -2480,7 +2571,13 @@ async function exportWith(path, action) {
 function exportPanel() {
   panelContent('export').innerHTML =
     `<p class="help">项目备份保留所有像素、图层和动画；导出后可在「文件」中保存或传到其他设备。</p><button id="export-project" class="panel-wide">${svg('export')}画室项目 .pixel</button><button id="export-ase" class="panel-wide">${svg('layers')}Aseprite .aseprite</button><label class="export-scale">PNG 尺寸<select id="png-scale"><option value="1">原始像素 · 1×</option><option value="2">清晰放大 · 2×</option><option value="4">清晰放大 · 4×</option><option value="8">清晰放大 · 8×</option></select></label><button id="export-svg" class="panel-wide">当前帧 · SVG 像素矢量</button><p class="help">SVG 将可见图层合成为矢量像素块，保留透明度，可无损缩放。</p><button id="export-png" class="panel-wide">当前帧 · PNG 透明图片</button><button id="export-sheet" class="panel-wide">全部帧 · PNG 横向精灵图</button><button id="export-gif" class="panel-wide">动画 · GIF</button><button id="export-import" class="panel-wide">导入项目 / Aseprite / 图片转像素</button><p class="help">Aseprite：保留普通图层、图层组、动画标签和帧时长。链接单元展开为独立可编辑像素；支持 19 种混合模式；遮罩与颜色调整会应用到像素，剪贴层合并到对应底层，保持画面效果。需保留可编辑遮罩请同时保存 .pixel；瓦片需先转换。GIF 使用 216 色量化，半透明像素转为透明或不透明。</p>`;
-  $('#export-project').onclick = () => download(serialize(project), '.pixel', 'application/json');
+  $('#export-project').onclick = async () => {
+    try {
+      download(await encodeProjectFile(project), '.pixel', 'application/octet-stream');
+    } catch (e) {
+      toast(e.message);
+    }
+  };
   for (const option of $('#png-scale').options) {
     if (project.w * project.h * Number(option.value) ** 2 > LIMITS.exportPixels) {
       option.disabled = true;
@@ -2627,9 +2724,7 @@ async function gallery() {
         for (const key of keys) {
           const record = await projectStore.get(key);
           if (!record) throw Error('作品已被移除');
-          const url = URL.createObjectURL(
-            new Blob([serialize(record.project)], { type: 'application/json' }),
-          );
+          const url = URL.createObjectURL(await encodeProjectFile(record.project));
           const link = document.createElement('a');
           link.href = url;
           link.download = record.project.name + '.pixel';
@@ -2741,7 +2836,7 @@ $('#file-input').onchange = async (e) => {
       const result = await readAse(await file.arrayBuffer());
       p = result.project;
       warnings = result.warnings;
-    } else if (kind === 'project') p = deserialize(await file.text());
+    } else if (kind === 'project') p = await decodeProjectFile(file);
     else {
       stop();
       const { importPixelImage } = await import('./pixel-import.js');
@@ -2903,6 +2998,7 @@ async function init() {
     historyChanged: updateHistory,
     canEdit: () => !project.layers[layer].group && !layerLocked(project, layer),
     color: () => color,
+    outline: () => openArtwork('outline'),
     scale: () => camera.scale,
     render,
     toast,
@@ -3009,7 +3105,7 @@ const editorIntegration = createEditorIntegration({
     busy:
       document.body.inert || switchingProject
         ? '作品正在加载，请稍后重试'
-        : stroke || selectionUI?.transforming || procedural?.busy
+        : stroke || selectionUI?.transforming || procedural?.busy || artworkWindow?.editing
           ? '请先完成笔画、选区或动画调整'
           : $('dialog[open]')
             ? '请先关闭当前对话框'

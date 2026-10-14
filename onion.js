@@ -1,3 +1,4 @@
+import { readCel } from './cel-storage.js';
 import { composite } from './engine.js';
 import { prepareAse, clippingBase } from './layer-effects.js';
 // Remove stationary pixels per layer before compositing. Static backgrounds
@@ -21,10 +22,11 @@ export function onionPixels(p, frame, neighbor, selectedLayer = -1) {
   }
   const before = p.frames[neighbor],
     current = p.frames[frame],
-    cels = before.cels.map((cel, li) => {
+    cels = before.cels.map((input, li) => {
+      const cel = readCel(input);
       const out = new Uint8ClampedArray(cel.length);
       if (p.layers[li].group || (selectedLayer >= 0 && li !== selectedLayer)) return out;
-      const now = current.cels[li];
+      const now = readCel(current.cels[li]);
       for (let i = 0; i < cel.length; i += 4)
         if (
           cel[i + 3] &&

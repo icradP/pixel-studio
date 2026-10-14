@@ -1,3 +1,4 @@
+import { quadMatrix, inverseMatrix, mapPoint } from './perspective.js';
 import { maskBounds } from './plugin-core.js';
 
 export function ellipseMask(w, h, a, b) {
@@ -102,12 +103,14 @@ export function transformPoint(x, y, t) {
   return { x: t.cx + x * c - y * s, y: t.cy + x * s + y * c };
 }
 export function transformHandles(t, scale = 1) {
-  const corners = [
-    [-1, -1],
-    [1, -1],
-    [1, 1],
-    [-1, 1],
-  ].map(([x, y]) => transformPoint((x * t.width) / 2, (y * t.height) / 2, t));
+  const corners =
+    t.quad ||
+    [
+      [-1, -1],
+      [1, -1],
+      [1, 1],
+      [-1, 1],
+    ].map(([x, y]) => transformPoint((x * t.width) / 2, (y * t.height) / 2, t));
   return {
     corners,
     rotation: transformPoint(0, -t.height / 2 - 32 / scale, t),
@@ -148,7 +151,8 @@ export function transformSelection(base, w, h, mask, t) {
   if (!t.copy) for (let i = 0; i < mask.length; i++) if (mask[i]) output.fill(0, i * 4, i * 4 + 4);
   const c = Math.cos(t.angle),
     s = Math.sin(t.angle),
-    corners = transformHandles(t).corners;
+    corners = transformHandles(t).corners,
+    inverse = t.quad ? inverseMatrix(quadMatrix(t.quad)) : null;
   const x0 = Math.max(0, Math.floor(Math.min(...corners.map((p) => p.x)))),
     x1 = Math.min(w, Math.ceil(Math.max(...corners.map((p) => p.x))));
   const y0 = Math.max(0, Math.floor(Math.min(...corners.map((p) => p.y)))),
@@ -157,8 +161,9 @@ export function transformSelection(base, w, h, mask, t) {
     for (let x = x0; x < x1; x++) {
       const dx = x + 0.5 - t.cx,
         dy = y + 0.5 - t.cy,
-        u = (dx * c + dy * s) / t.width + 0.5,
-        v = (-dx * s + dy * c) / t.height + 0.5;
+        mapped = inverse ? mapPoint(inverse, x + 0.5, y + 0.5) : null,
+        u = mapped ? mapped.x : (dx * c + dy * s) / t.width + 0.5,
+        v = mapped ? mapped.y : (-dx * s + dy * c) / t.height + 0.5;
       if (u < 0 || u >= 1 || v < 0 || v >= 1) continue;
       let sx = Math.floor(u * bounds.w),
         sy = Math.floor(v * bounds.h);

@@ -1,3 +1,4 @@
+import { cloneCel } from './cel-storage.js';
 import { cloneLayer } from './engine.js';
 import { LIMITS, projectUsage } from './limits.js';
 import { parentLayer, subtreeEnd, reorderLayer } from './animation-edit.js';
@@ -18,11 +19,7 @@ export function duplicateLayer(project, index) {
   }));
   project.layers.splice(end, 0, ...layers);
   project.frames.forEach((frame) =>
-    frame.cels.splice(
-      end,
-      0,
-      ...frame.cels.slice(index, end).map((cel) => new Uint8ClampedArray(cel)),
-    ),
+    frame.cels.splice(end, 0, ...frame.cels.slice(index, end).map((cel) => cloneCel(cel))),
   );
   return end;
 }

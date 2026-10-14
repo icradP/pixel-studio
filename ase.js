@@ -1,3 +1,4 @@
+import { readCel } from './cel-storage.js';
 import { prepareAse } from './layer-effects.js';
 import { LIMITS } from './limits.js';
 import { blank, validate, MAX_PIXELS } from './engine.js';
@@ -325,6 +326,9 @@ function chunk(type, data) {
 }
 export function writeAse(p) {
   validate(p);
+  // This writer materializes every cel; compact projects can represent far more pixels.
+  if (p.w * p.h * p.layers.length * p.frames.length > MAX_PIXELS)
+    throw Error('此项目展开后超过 Aseprite 导出预算，请保存无损 .pixel 工程或减少导出帧数');
   p = prepareAse(p);
   validate(p);
   const tags = [...(p.tags || [])].sort((a, b) => a.from - b.from || b.to - a.to);
@@ -378,7 +382,7 @@ export function writeAse(p) {
       x.zeros(7);
       x.u16(p.w);
       x.u16(p.h);
-      x.bytes(c);
+      x.bytes(readCel(c));
       chunks.push(chunk(0x2005, x.out()));
     });
     const x = new Writer();

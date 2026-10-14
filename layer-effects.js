@@ -1,3 +1,4 @@
+import { readCel, editCel, cloneCel, emptyPackedCel } from './cel-storage.js';
 // Blend IDs and byte compositing match the public Aseprite implementation.
 // RGB blend functions use the W3C definitions, quantized as Aseprite does.
 export const BLEND_MODES = [
@@ -204,7 +205,7 @@ export function adjustedRgb(rgb, a = {}) {
 }
 export function layerPixels(p, frame, index, { opacity = false } = {}) {
   const l = p.layers[index],
-    src = p.frames[frame].cels[index],
+    src = readCel(p.frames[frame].cels[index]),
     out = new Uint8ClampedArray(src),
     mask = l.maskEnabled !== false ? l.mask : null,
     a = l.adjustments;
@@ -246,6 +247,10 @@ export function renderComposite(p, frame) {
         render((l.level || 0) + 1, out, on);
         continue;
       }
+      if (!l.group && (!on || emptyPackedCel(p.frames[frame].cels[k]))) {
+        if (!l.clipping) flush();
+        continue;
+      }
       let src;
       if (l.group) {
         src = render((l.level || 0) + 1);
@@ -272,7 +277,7 @@ export function applyMask(p, index) {
   if (!l.mask) return;
   for (const f of p.frames)
     for (let i = 0; i < l.mask.length; i++)
-      f.cels[index][i * 4 + 3] = Math.round((f.cels[index][i * 4 + 3] * l.mask[i]) / 255);
+      editCel(f, index)[i * 4 + 3] = Math.round((editCel(f, index)[i * 4 + 3] * l.mask[i]) / 255);
   delete l.mask;
   delete l.maskEnabled;
 }
@@ -287,9 +292,7 @@ export function prepareAse(p) {
     }),
     frames = p.frames.map((f, fi) => {
       const baked = new Set(),
-        cels = p.layers.map((l, i) =>
-          l.group ? new Uint8ClampedArray(f.cels[i]) : layerPixels(p, fi, i),
-        );
+        cels = p.layers.map((l, i) => (l.group ? cloneCel(f.cels[i]) : layerPixels(p, fi, i)));
       for (let i = 0; i < p.layers.length; i++)
         if (p.layers[i].clipping) {
           remove.add(i);

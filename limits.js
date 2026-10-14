@@ -1,3 +1,4 @@
+import { storageBytes } from './cel-storage.js';
 export const LIMITS = Object.freeze({
   dimension: 1024,
   layers: 32,
@@ -20,17 +21,23 @@ export function projectUsage(project) {
   const layers = project.layers.length,
     frames = project.frames.length;
   const pixels = area * layers * frames;
+  const bytes = project.frames[0]?.cels ? storageBytes(project) : pixels * 4,
+    compact = project.storage === 'packed';
   return {
     pixels,
-    bytes: pixels * 4 + project.layers.reduce((n, l) => n + (l.mask?.byteLength || 0), 0),
-    ratio: Math.max(pixels / LIMITS.pixels, layers / LIMITS.layers, frames / LIMITS.frames),
+    bytes,
+    logicalBytes: pixels * 4,
+    compact,
+    ratio: Math.max(bytes / (LIMITS.pixels * 4), layers / LIMITS.layers, frames / LIMITS.frames),
     moreLayers: Math.max(
       0,
-      Math.min(LIMITS.layers, Math.floor(LIMITS.pixels / area / frames)) - layers,
+      Math.min(LIMITS.layers, compact ? LIMITS.layers : Math.floor(LIMITS.pixels / area / frames)) -
+        layers,
     ),
     moreFrames: Math.max(
       0,
-      Math.min(LIMITS.frames, Math.floor(LIMITS.pixels / area / layers)) - frames,
+      Math.min(LIMITS.frames, compact ? LIMITS.frames : Math.floor(LIMITS.pixels / area / layers)) -
+        frames,
     ),
   };
 }
