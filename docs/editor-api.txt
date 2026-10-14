@@ -171,3 +171,11 @@ path(同对象贝塞尔路径),keys(以秒为时间的亮度倍率关键帧)。
     "x":64,"y":110,"radius":90,"intensity":0.5,"color":"#8ebdff",
     "start":0,"end":4,"pulse":0.6,"frequency":1.5}]
 }
+
+选区副本（v0.16.1）
+------------------
+pixel_transform 增加 newLayer=true，可把 current 选区或 region 复制到独立图层。
+不提供 x/y/width/height/rotation/quad 时保留原坐标；也可在同一次事务中变换副本。
+只复制指定帧，其他帧为空；原图不变，copy 参数忽略。返回 document.activeLayer 为副本索引。
+遮罩与颜色调整应用到副本像素；保留不透明度/混合模式/组关系，副本可独立移动。
+无可见像素拒绝创建；锁定层/父组拒绝，透明度锁定允许复制到新层。

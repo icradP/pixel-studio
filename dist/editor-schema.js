@@ -261,7 +261,7 @@ export const EDITOR_TOOLS = [
   tool(
     'transform',
     '变换选区或图层',
-    'Move, resize, rotate, mirror or perspective-warp pixels as one undo step using nearest-neighbor sampling. selection=current (default) uses the active selection, or opaque layer bounds when no selection exists; all uses opaque layer bounds. Optional region explicitly chooses a rectangle instead. x/y are the unrotated destination top-left; rotation is degrees around its center. Optional convex quad TL,TR,BR,BL overrides x/y/width/height/rotation. copy=true retains the source. Pixels outside the canvas are clipped. Rejects locked/alpha-locked layers. Layer masks remain unchanged.',
+    'Move, resize, rotate, mirror or perspective-warp pixels as one undo step using nearest-neighbor sampling. selection=current (default) uses the active selection, or opaque layer bounds when no selection exists; all uses opaque layer bounds. Optional region explicitly chooses a rectangle instead. x/y are the unrotated destination top-left; rotation is degrees around its center. Optional convex quad TL,TR,BR,BL overrides x/y/width/height/rotation. copy=true retains the source on the same layer. newLayer=true copies the selected current-frame pixels into a new layer and focuses it; source pixels and other frames remain unchanged, copy is ignored, masks/adjustments are baked into the copy. Without transform fields the copy stays at its original position. Pixels outside the canvas are clipped. Rejects locked layers; alpha lock only blocks in-place transforms.',
     change(
       {
         frame: index,
@@ -276,6 +276,7 @@ export const EDITOR_TOOLS = [
         flipX: boolean,
         flipY: boolean,
         copy: boolean,
+        newLayer: boolean,
         quad: array(point, 4, 4),
       },
       ['frame', 'layer'],

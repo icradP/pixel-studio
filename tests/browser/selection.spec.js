@@ -58,6 +58,99 @@ async function saved(page) {
     }
   });
 }
+test('copy selected pixels to a new layer, move from outside its box and undo without altering the source', async ({
+  page,
+}) => {
+  await ready(page);
+  await expect(page.locator('#selection-new-layer')).toBeDisabled();
+  await tap(page);
+  await page.locator('#selection-new-layer').click();
+  await expect(page.locator('#canvas-info')).toContainText('2 层');
+  await expect(page.locator('#transform-options')).toBeVisible();
+  await expect(page.locator('#transform-x')).toHaveValue('5');
+  const a = await point(page, 17, 3),
+    b = await point(page, 20, 3);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  await page.mouse.move(b.x, b.y, { steps: 8 });
+  await page.mouse.up();
+  await expect(page.locator('#transform-x')).toHaveValue('8');
+  await page.locator('#selection-done').click();
+  const copied = await saved(page);
+  expect(copied.frames[0].cels[0]).toEqual(project.frames[0].cels[0]);
+  expect([...copied.frames[0].cels[1].slice((5 * 32 + 8) * 4, (5 * 32 + 8) * 4 + 4)]).toEqual([
+    100, 80, 50, 255,
+  ]);
+  expect(copied.frames[0].cels[1][(5 * 32 + 5) * 4 + 3]).toBe(0);
+  await page.locator('#quick-undo').click();
+  await expect(page.locator('#canvas-info')).toContainText('2 层');
+  await page.locator('#quick-undo').click();
+  await expect(page.locator('#canvas-info')).toContainText('1 层');
+  expect((await saved(page)).frames).toEqual(project.frames);
+  await page.locator('#tool-wand').click();
+  await tap(page);
+  await page.keyboard.press('ControlOrMeta+j');
+  await expect(page.locator('#canvas-info')).toContainText('2 层');
+  await page.locator('#selection-done').click();
+  const shortcut = await saved(page);
+  expect(shortcut.frames[0].cels[0]).toEqual(project.frames[0].cels[0]);
+  expect(shortcut.frames[0].cels[1][(5 * 32 + 5) * 4 + 3]).toBe(255);
+});
+
+test('all selection tools drag selected pixels directly without accidentally resizing; cancel and undo restore pixels', async ({
+  page,
+}) => {
+  await ready(page);
+  await tap(page);
+  for (const tool of ['select', 'ellipse-select', 'lasso', 'wand']) {
+    await page.locator(`[data-select-tool="${tool}"]`).click();
+    const a = await point(page, 6, 6),
+      b = await point(page, 10, 8);
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    await page.mouse.move(b.x, b.y, { steps: 8 });
+    await page.mouse.up();
+    await expect(page.locator('#transform-options')).toBeVisible();
+    await expect(page.locator('#transform-x')).toHaveValue('9');
+    await expect(page.locator('#transform-y')).toHaveValue('7');
+    await expect(page.locator('#transform-width')).toHaveValue('4');
+    await page.locator('#transform-cancel').click();
+    await count(page, 16);
+    expect((await saved(page)).frames).toEqual(project.frames);
+  }
+  const a = await point(page, 6, 6),
+    b = await point(page, 10, 8);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  await page.mouse.move(b.x, b.y);
+  await page.mouse.up();
+  await page.locator('#transform-apply').click();
+  expect((await saved(page)).frames).not.toEqual(project.frames);
+  await page.locator('#quick-undo').click();
+  expect((await saved(page)).frames).toEqual(project.frames);
+});
+
+test('second touch or pointer cancellation rolls back direct movement without replacing the selection', async ({
+  page,
+}) => {
+  await ready(page);
+  await tap(page);
+  const a = await point(page, 6, 6),
+    b = await point(page, 10, 8);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  await page.mouse.move(b.x, b.y);
+  await page.locator('#view').dispatchEvent('pointercancel', {
+    pointerId: 1,
+    pointerType: 'mouse',
+    clientX: b.x,
+    clientY: b.y,
+  });
+  await page.mouse.up();
+  await expect(page.locator('#transform-options')).toBeHidden();
+  await count(page, 16);
+  expect((await saved(page)).frames).toEqual(project.frames);
+});
 test('automatic selection adds taps, subtracts and restores selection steps without touching artwork', async ({
   page,
 }) => {

@@ -129,6 +129,32 @@ test('WebMCP transforms respect active selection, copy and locks', async () => {
   await assert.rejects(f.call('transform', { frame: 0, layer: 0, x: 1 }), /解锁/);
   assert.equal(serialize(f.s.project), saved);
 });
+test('WebMCP copies an irregular selection into a focused new layer and undoes atomically', async () => {
+  const f = fixture();
+  await f.call('draw', draw([dot(2, 3), dot(9, 9, '#00ff00')]));
+  f.s.selection = new Uint8Array(256);
+  f.s.selection[3 * 16 + 2] = 1;
+  const before = serialize(f.s.project),
+    count = f.s.history.count;
+  const result = await f.call('transform', { frame: 0, layer: 0, newLayer: true });
+  assert.equal(f.s.layer, 1);
+  assert.equal(result.document.activeLayer, 1);
+  assert.deepEqual(pixel(f.s.project, 2, 3, 0, 1), pixel(f.s.project, 2, 3));
+  assert.deepEqual(pixel(f.s.project, 9, 9, 0, 1), [0, 0, 0, 0]);
+  assert.equal(f.s.history.count, count + 1);
+  await f.call('history', { direction: 'undo' });
+  assert.equal(serialize(f.s.project), before);
+  await f.call('transform', {
+    frame: 0,
+    layer: 0,
+    newLayer: true,
+    region: { x: 2, y: 3, width: 1, height: 1 },
+    x: 5,
+    y: 6,
+  });
+  assert.deepEqual(pixel(f.s.project, 5, 6, 0, 1), pixel(f.s.project, 2, 3));
+  assert.deepEqual(pixel(f.s.project, 2, 3, 0, 1), [0, 0, 0, 0]);
+});
 test('WebMCP batch appearance, color clips and moving light changes are one atomic scene undo', async () => {
   const f = fixture();
   await f.call('draw', draw());

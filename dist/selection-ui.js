@@ -35,7 +35,7 @@ export function createSelectionController(host) {
   bar.setAttribute('aria-label', '选区操作');
   bar.setAttribute('role', 'dialog');
   bar.hidden = true;
-  bar.innerHTML = `<div id="selection-tools" class="segment" role="group" aria-label="选区方式"><button data-select-tool="wand">自动</button><button data-select-tool="lasso">手绘</button><button data-select-tool="select">矩形</button><button data-select-tool="ellipse-select">椭圆</button></div><div id="selection-compose"><div id="selection-mode" class="segment" role="group" aria-label="选区组合"><button data-select-mode="replace">新选区</button><button data-select-mode="add">＋ 添加</button><button data-select-mode="subtract">− 移除</button></div><div class="selection-history"><button id="selection-undo" aria-label="撤销选区操作" title="撤销选区操作">↶</button><button id="selection-redo" aria-label="重做选区操作" title="重做选区操作">↷</button></div></div><div id="wand-options"><label class="wand-threshold" for="wand-tolerance"><span>选区阈值</span><output id="wand-tolerance-value" for="wand-tolerance">20%</output><input id="wand-tolerance" aria-label="选区阈值" type="range" min="0" max="100" value="20"></label><button id="wand-settings-toggle" aria-expanded="false" aria-controls="wand-settings">取样与显示</button></div><div id="wand-settings" hidden><label class="switch">仅相邻区域<input id="wand-contiguous" type="checkbox" checked></label><label class="switch">参考所有可见图层<input id="wand-merged" type="checkbox"></label><label class="wand-threshold" for="selection-opacity"><span>选区外遮罩</span><output id="selection-opacity-value" for="selection-opacity">45%</output><input id="selection-opacity" aria-label="选区外遮罩" type="range" min="10" max="80" value="45"></label><p>关闭「仅相邻区域」可选择画布上所有同色像素；默认只取样当前图层。</p></div><p id="selection-instruction"></p><div id="selection-actions" class="selection-row"><button id="selection-transform">移动与变换</button><button id="selection-fill">填充</button><button id="selection-outline">描边</button><button id="selection-invert">反选</button><button id="selection-copy">拷贝变换</button><button id="selection-store">存储</button><button id="selection-load">加载</button><button id="selection-clear">清除</button></div><div id="transform-options"><div class="selection-row"><label class="selection-check"><input id="transform-perspective" type="checkbox">透视变形</label><label>网格<input id="transform-grid" type="number" min="1" max="16" value="4"></label><span class="selection-hint">透视模式下拖动四角，拖动内部平移</span></div><div class="selection-row"><label>X<input id="transform-x" type="number"></label><label>Y<input id="transform-y" type="number"></label><label>宽<input id="transform-width" type="number" min="1"></label><label>高<input id="transform-height" type="number" min="1"></label><label>角度<input id="transform-angle" type="number" min="-360" max="360"></label><label class="selection-check"><input id="transform-uniform" type="checkbox" checked>等比</label><label class="selection-check"><input id="transform-snap" type="checkbox">15° 吸附</label></div><div class="selection-row"><button id="transform-copy" aria-pressed="false">复制变换</button><button id="transform-flip-x">水平翻转</button><button id="transform-flip-y">垂直翻转</button><button id="transform-cancel">取消变换</button><button id="transform-apply" class="primary">应用变换</button><span class="selection-hint">拖选区移动 · 拖角点缩放 · 拖圆柄旋转</span></div></div>`;
+  bar.innerHTML = `<div id="selection-tools" class="segment" role="group" aria-label="选区方式"><button data-select-tool="wand">自动</button><button data-select-tool="lasso">手绘</button><button data-select-tool="select">矩形</button><button data-select-tool="ellipse-select">椭圆</button></div><div id="selection-compose"><div id="selection-mode" class="segment" role="group" aria-label="选区组合"><button data-select-mode="replace">新选区</button><button data-select-mode="add">＋ 添加</button><button data-select-mode="subtract">− 移除</button></div><div class="selection-history"><button id="selection-undo" aria-label="撤销选区操作" title="撤销选区操作">↶</button><button id="selection-redo" aria-label="重做选区操作" title="重做选区操作">↷</button></div></div><div id="wand-options"><label class="wand-threshold" for="wand-tolerance"><span>选区阈值</span><output id="wand-tolerance-value" for="wand-tolerance">20%</output><input id="wand-tolerance" aria-label="选区阈值" type="range" min="0" max="100" value="20"></label><button id="wand-settings-toggle" aria-expanded="false" aria-controls="wand-settings">取样与显示</button></div><div id="wand-settings" hidden><label class="switch">仅相邻区域<input id="wand-contiguous" type="checkbox" checked></label><label class="switch">参考所有可见图层<input id="wand-merged" type="checkbox"></label><label class="wand-threshold" for="selection-opacity"><span>选区外遮罩</span><output id="selection-opacity-value" for="selection-opacity">45%</output><input id="selection-opacity" aria-label="选区外遮罩" type="range" min="10" max="80" value="45"></label><p>关闭「仅相邻区域」可选择画布上所有同色像素；默认只取样当前图层。</p></div><p id="selection-instruction"></p><div id="selection-actions" class="selection-row"><button id="selection-transform">移动与变换</button><button id="selection-new-layer" title="拷贝当前帧选区到新图层 · ⌘/Ctrl+J">拷贝到新图层</button><button id="selection-fill">填充</button><button id="selection-outline">描边</button><button id="selection-invert">反选</button><button id="selection-copy">拷贝变换</button><button id="selection-store">存储</button><button id="selection-load">加载</button><button id="selection-clear">清除</button></div><div id="transform-options"><div class="selection-row"><label class="selection-check"><input id="transform-perspective" type="checkbox">透视变形</label><label>网格<input id="transform-grid" type="number" min="1" max="16" value="4"></label><span class="selection-hint">透视模式下拖动四角，拖动内部平移</span></div><div class="selection-row"><label>X<input id="transform-x" type="number"></label><label>Y<input id="transform-y" type="number"></label><label>宽<input id="transform-width" type="number" min="1"></label><label>高<input id="transform-height" type="number" min="1"></label><label>角度<input id="transform-angle" type="number" min="-360" max="360"></label><label class="selection-check"><input id="transform-uniform" type="checkbox" checked>等比</label><label class="selection-check"><input id="transform-snap" type="checkbox">15° 吸附</label></div><div class="selection-row"><button id="transform-copy" aria-pressed="false">复制变换</button><button id="transform-flip-x">水平翻转</button><button id="transform-flip-y">垂直翻转</button><button id="transform-cancel">取消变换</button><button id="transform-apply" class="primary">应用变换</button><span class="selection-hint">拖动画布移动 · 拖角点缩放 · 拖圆柄旋转</span></div></div>`;
   const contents = bar.innerHTML;
   bar.innerHTML =
     '<header class="selection-head"><strong id="selection-caption">选区工具</strong><span id="selection-count">未选择</span><button id="selection-done" class="primary">完成</button><button id="selection-dock" aria-label="自动排列选区工具" title="自动排列">⊞</button><button id="selection-collapse" aria-label="收起或展开选区工具" aria-expanded="true">−</button><button id="selection-dismiss" aria-label="隐藏选区工具">×</button></header><div class="selection-body">' +
@@ -50,6 +50,7 @@ export function createSelectionController(host) {
   const history = createSelectionHistory();
   const isSelecting = () => ['select', 'wand', 'lasso', 'ellipse-select'].includes(host.tool());
   const wandJob = createRenderScheduler(resampleWand);
+  const transformJob = createRenderScheduler(renderPreview);
   const hud = document.createElement('div');
   hud.id = 'selection-threshold-hud';
   hud.hidden = true;
@@ -237,6 +238,7 @@ export function createSelectionController(host) {
       hud.hidden = true;
     }
     if (edit && edit.context !== snapshot().context) {
+      transformJob.cancel();
       edit = null;
       gesture = null;
       setMask(null);
@@ -264,7 +266,8 @@ export function createSelectionController(host) {
       tool !== 'wand' ||
       q('#wand-settings-toggle').getAttribute('aria-expanded') !== 'true';
     q('#selection-instruction').hidden = !!edit;
-    q('#selection-transform').disabled = !selected;
+    q('#selection-transform').disabled = !selected || !host.canEdit();
+    q('#selection-new-layer').disabled = !selected || !host.canCopy();
     for (const id of ['selection-copy', 'selection-fill', 'selection-store', 'selection-clear'])
       q('#' + id).disabled = !selected;
     q('#selection-invert').textContent = selected ? '反选' : '全选';
@@ -281,13 +284,15 @@ export function createSelectionController(host) {
         ? '自动选区'
         : '选区工具';
     q('#selection-instruction').textContent =
-      tool === 'wand'
-        ? (mode === 'subtract'
-            ? '轻点移除区域'
-            : mode === 'replace'
-              ? '轻点创建新选区'
-              : '连续轻点添加区域') + ' · 按住左右拖动调整阈值'
-        : '拖动画布创建选区 · 完成后可在选区内绘画';
+      selected && mode !== 'subtract'
+        ? '拖动选区内部移动 · 选区外继续添加 · 拷贝到新图层保留原图'
+        : tool === 'wand'
+          ? (mode === 'subtract'
+              ? '轻点移除区域'
+              : mode === 'replace'
+                ? '轻点创建新选区'
+                : '连续轻点添加区域') + ' · 按住左右拖动调整阈值'
+          : '拖动画布创建选区 · 完成后可在选区内绘画';
     bar.querySelectorAll('[data-select-mode]').forEach((button) => {
       const active = button.dataset.selectMode === mode;
       button.setAttribute('aria-pressed', String(active));
@@ -307,6 +312,10 @@ export function createSelectionController(host) {
     else scheduleDock();
   }
   function preview() {
+    fields();
+    transformJob.request();
+  }
+  function renderPreview() {
     if (!edit) return;
     const p = snapshot().project;
     edit.preview = transformSelection(edit.base, p.w, p.h, edit.mask, edit.t);
@@ -346,6 +355,8 @@ export function createSelectionController(host) {
   }
   function finish(apply) {
     if (!edit) return;
+    if (apply) transformJob.flush();
+    else transformJob.cancel();
     const current = edit;
     edit = null;
     gesture = null;
@@ -367,14 +378,6 @@ export function createSelectionController(host) {
       else {
         corner = handles.corners.findIndex((v) => distance(v) < 17);
         if (corner >= 0) kind = t.quad ? 'perspective' : 'scale';
-        else {
-          const dx = p.x - t.cx,
-            dy = p.y - t.cy,
-            x = dx * Math.cos(t.angle) + dy * Math.sin(t.angle),
-            y = -dx * Math.sin(t.angle) + dy * Math.cos(t.angle);
-          if (Math.abs(x) > t.width / 2 + 10 / scale || Math.abs(y) > t.height / 2 + 10 / scale)
-            return true;
-        }
       }
       gesture = {
         kind,
@@ -391,10 +394,13 @@ export function createSelectionController(host) {
       w = s.project.w,
       h = s.project.h;
     if (p.x < 0 || p.y < 0 || p.x >= w || p.y >= h) return true;
-    if (tool === 'select' && mode === 'replace' && hasMask()) {
-      const b = maskBounds(host.selection(), w, h);
-      if (p.x >= b.x && p.x < b.x + b.w && p.y >= b.y && p.y < b.y + b.h && start())
-        return begin(e, p, tool);
+    if (
+      mode !== 'subtract' &&
+      host.selection()?.[Math.floor(p.y) * w + Math.floor(p.x)] &&
+      host.canEdit()
+    ) {
+      gesture = { kind: 'pending-move', start: { ...p }, before: host.selection() };
+      return true;
     }
     gesture = {
       kind: tool,
@@ -433,6 +439,21 @@ export function createSelectionController(host) {
   }
   function move(e, p) {
     if (!gesture) return;
+    if (gesture.kind === 'pending-move') {
+      if (Math.hypot(p.x - gesture.start.x, p.y - gesture.start.y) * host.scale() < 6) return;
+      const origin = gesture.start;
+      if (!start()) {
+        gesture = null;
+        return;
+      }
+      gesture = {
+        kind: 'move',
+        start: origin,
+        t: structuredClone(edit.t),
+        modified: false,
+        quick: true,
+      };
+    }
     const g = gesture;
     if (['select', 'ellipse-select', 'lasso'].includes(g.kind)) {
       const s = snapshot(),
@@ -538,6 +559,14 @@ export function createSelectionController(host) {
   }
   function end(cancel = false) {
     if (!gesture) return;
+    if (gesture.kind === 'pending-move') {
+      gesture = null;
+      return;
+    }
+    if (cancel && gesture.quick) {
+      finish(false);
+      return;
+    }
     if (cancel) wandJob.cancel();
     else wandJob.flush();
     if (gesture.kind === 'wand') {
@@ -553,6 +582,7 @@ export function createSelectionController(host) {
         edit.modified = gesture.modified;
         preview();
       }
+      transformJob.flush();
     } else if (cancel) setMask(gesture.before);
     else remember(gesture.before, gesture.beforeWand);
     gesture = null;
@@ -622,7 +652,24 @@ export function createSelectionController(host) {
   q('#selection-transform').onclick = start;
   q('#selection-outline').onclick = () => host.outline?.();
   q('#transform-cancel').onclick = () => finish(false);
-  q('#transform-apply').onclick = () => finish(true);
+  q('#transform-apply').onclick = () => {
+    finish(true);
+    host.selectTool('pencil');
+  };
+  function copyToLayer() {
+    if (edit || gesture) return host.toast('请先完成当前变换或选区操作');
+    finishAdjustment();
+    try {
+      host.copyLayer();
+      host.selectTool('pencil');
+      hiddenByUser = false;
+      start();
+      host.toast('已拷贝到新图层，拖动画布即可移动');
+    } catch (error) {
+      host.toast(error.message);
+    }
+  }
+  q('#selection-new-layer').onclick = copyToLayer;
   q('#wand-settings-toggle').onclick = () => {
     const button = q('#wand-settings-toggle');
     button.setAttribute('aria-expanded', String(button.getAttribute('aria-expanded') !== 'true'));
@@ -807,11 +854,12 @@ export function createSelectionController(host) {
     update,
     start,
     finish,
+    copyToLayer,
     get transforming() {
       return !!edit;
     },
     get preview() {
-      return edit?.preview.pixels || null;
+      return edit?.preview?.pixels || null;
     },
     clear() {
       finish(false);
