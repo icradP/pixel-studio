@@ -257,7 +257,26 @@ export function evaluateScene(compiled, scene, time, { solo = null, objectIds = 
   if (!solo) applyLights(out, compiled.w, compiled.h, scene, time);
   return out;
 }
-export function sampleTimes(scene) {
+export function sampleTimes(scene, { frameCount, fps } = {}) {
+  if (frameCount !== undefined && fps !== undefined) throw Error('帧数与帧率只能指定一种');
+  if (frameCount !== undefined || fps !== undefined) {
+    const span = scene.range[1] - scene.range[0];
+    if (fps !== undefined && (!Number.isFinite(fps) || fps <= 0 || fps > 50))
+      throw Error('烘焙帧率必须大于 0 且不超过 50');
+    const count = frameCount ?? Math.max(1, Math.round(span * fps));
+    if (
+      !Number.isInteger(count) ||
+      count < 1 ||
+      count > 240 ||
+      (span * 1000) / count < 20 - 1e-8 ||
+      (span * 1000) / count > 10000
+    )
+      throw Error('烘焙需要 1–240 帧，单帧时长 20–10000 毫秒');
+    return Array.from({ length: count }, (_, i) => ({
+      time: scene.range[0] + (i * span) / count,
+      duration: Math.round(((i + 1) * span * 1000) / count) - Math.round((i * span * 1000) / count),
+    }));
+  }
   const first = Math.round(scene.range[0] * scene.fps),
     end = Math.round(scene.range[1] * scene.fps);
   if (end <= first) throw Error('播放区间至少包含一帧');
@@ -271,7 +290,7 @@ export function sampleTimes(scene) {
 export function bakePlan(
   project,
   scene,
-  { mode = 'objects', replace = false, objectIds = null } = {},
+  { mode = 'objects', replace = false, objectIds = null, frameCount, fps } = {},
 ) {
   if (
     objectIds &&
@@ -283,7 +302,7 @@ export function bakePlan(
   const objects = objectIds ? scene.objects.filter((o) => objectIds.includes(o.id)) : scene.objects;
   const includeBackground = !objectIds;
   if (!['objects', 'composite'].includes(mode)) throw Error('未知的烘焙输出方式');
-  const samples = sampleTimes(scene),
+  const samples = sampleTimes(scene, { frameCount, fps }),
     planes = mode === 'objects' ? objects.length + (includeBackground ? 1 : 0) : 1,
     last = replace ? scene.bakes.at(-1) : null;
   if (!scene.objects.length) throw Error('请先创建动画对象');
@@ -329,7 +348,7 @@ export function bakePlan(
     pixels = project.w * project.h * layers * frames;
   if (layers > LIMITS.layers || frames > LIMITS.frames)
     throw Error(
-      `烘焙后需要 ${layers} 层、${frames} 帧、${((pixels * 4) / 1048576).toFixed(1)} MiB；上限 32 层 / 240 帧 / 800 万总像素，请降低帧率或缩短区间`,
+      `烘焙后需要 ${layers} 层、${frames} 帧；上限 32 层 / 240 帧，请减少本次帧数或缩短区间`,
     );
   const compact = pixels > LIMITS.pixels || project.storage === 'packed';
   return {

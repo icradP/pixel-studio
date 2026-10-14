@@ -238,20 +238,69 @@ for (const mode of ['objects', 'composite'])
         ['#scene-export-gif', 'gif'],
         ['#scene-export-sheet', 'png'],
       ]) {
+        if (extension === 'gif') {
+          await page.locator(selector).click();
+          await page.locator('#gif-generate').click();
+          await expect(page.locator('#gif-status')).toContainText('实际文件');
+          await expect(page.locator('#gif-preview')).toBeVisible();
+        }
         const [download] = await Promise.all([
           page.waitForEvent('download'),
-          page.locator(selector).click(),
+          page.locator(extension === 'gif' ? '#gif-download' : selector).click(),
         ]);
         expect(download.suggestedFilename()).toMatch(new RegExp('\\.' + extension + '$'));
         const data = await buffer(await download.createReadStream());
-        if (extension === 'gif') expect(data.subarray(0, 6).toString()).toBe('GIF89a');
-        else {
+        if (extension === 'gif') {
+          expect(data.subarray(0, 6).toString()).toBe('GIF89a');
+          await page.locator('#gif-close').click();
+          await expect(page.locator('#gif-export-dialog')).toHaveCount(0);
+        } else {
           expect(data.readUInt32BE(16)).toBe(96 * 24);
           expect(data.readUInt32BE(20)).toBe(72);
         }
       }
     }
   });
+
+test('bake count and FPS are linked without retiming the scene; GIF presets preview the real output', async ({
+  page,
+}) => {
+  await load(page);
+  const scene = (await saved(page)).procedural;
+  await page.locator('#scene-bake').click();
+  await page.locator('#scene-bake-fps').fill('6');
+  await expect(page.locator('#scene-bake-frames')).toHaveValue('12');
+  await page.locator('#scene-bake-frames').fill('8');
+  await expect(page.locator('#scene-bake-fps')).toHaveValue('4.000');
+  await expect(page.locator('#scene-bake-capacity')).toContainText('8 个采样帧');
+  await page.locator('#scene-bake-confirm').click();
+  await expect(page.locator('#frame-count')).toHaveText('09 FRAMES');
+  const p = await saved(page);
+  expect(p.procedural.fps).toBe(scene.fps);
+  expect(p.procedural.range).toEqual(scene.range);
+  expect(p.frames.slice(1).reduce((sum, f) => sum + f.duration, 0)).toBe(2000);
+  await page.locator('[data-panel="export"]').click();
+  await page.locator('#export-gif').click();
+  await page.getByRole('combobox', { name: /导出预设/ }).click();
+  await page.getByRole('option', { name: /均衡/ }).click();
+  await expect(page.getByRole('combobox', { name: /颜色上限/ })).toContainText('128 色');
+  await expect(page.getByRole('combobox', { name: /导出帧率/ })).toContainText('15 FPS');
+  await page.locator('#gif-from').fill('2');
+  await page.locator('#gif-edge').fill('48');
+  await page.locator('#gif-generate').click();
+  await expect(page.locator('#gif-status')).toContainText('实际文件');
+  await expect(page.locator('#gif-preview')).toBeVisible();
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.locator('#gif-download').click(),
+  ]);
+  const bytes = await buffer(await download.createReadStream());
+  expect(bytes.readUInt16LE(6)).toBe(48);
+  expect(bytes.readUInt16LE(8)).toBe(36);
+  await page.locator('#gif-edge').fill('24');
+  await expect(page.locator('#gif-download')).toBeDisabled();
+  await expect(page.locator('#gif-preview')).toBeHidden();
+});
 
 test('overlapping source selection is rejected without changing the scene', async ({ page }) => {
   await load(page);

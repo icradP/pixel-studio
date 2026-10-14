@@ -144,11 +144,18 @@ test('native animation tools: editable metadata, visual contact sheet, bake and 
   expect(baked.frameRange).toEqual([1, 8]);
   await expect(page.locator('#scene-timeline')).toBeHidden();
   const downloadPromise = page.waitForEvent('download');
-  const exported = await call(page, 'export', { format: 'gif', from: 1, to: 8 });
+  const exported = await call(page, 'export', {
+    format: 'gif',
+    from: 1,
+    to: 8,
+    gif: { maxEdge: 16, colors: 32, fps: 4 },
+  });
   expect(exported.isError, exported.message).not.toBe(true);
   const download = await downloadPromise,
     bytes = await buffer(await download.createReadStream());
   expect(bytes.subarray(0, 6).toString()).toBe('GIF89a');
+  expect(bytes.readUInt16LE(6)).toBe(16);
+  expect(bytes.readUInt16LE(8)).toBe(16);
   expect(exported.bytes).toBe(bytes.length);
   const p = await saved(page);
   expect(p.procedural.objects[0].path).toHaveLength(2);

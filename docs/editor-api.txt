@@ -1,4 +1,4 @@
-Pixel Studio Editor API v1 / WebMCP · v0.15.0
+Pixel Studio Editor API v1 / WebMCP · v0.15.1
 
 入口
 ----
@@ -74,6 +74,8 @@ pixel_add_text         中日英点阵文字，新建像素图层；支持方向
 pixel_add_outline      选区或图层像素描边，新建独立图层。
 pixel_transform        当前选区、区域或图层边界的像素变换。详细字段见下文。
 pixel_bake_animation   mode(objects/composite，默认composite),objectIds,replace=false,dryRun=false。
+                       frameCount(1..240) 或 fps(0.01..50)，不可同时传入；仅覆盖本次采样。
+                       保持区间总时长和源设置，每帧 20..10000 ms，项目总帧数仍受容量限制。
                        objectIds 省略代表整个场景；传入对象ID数组只烘焙所选，背景透明。
                        composite 合并为一个像素图层；objects 按对象分层。
                        dryRun 返回容量计划，compact 表示启用压缩，logicalBytes 为展开体积；
@@ -82,7 +84,11 @@ pixel_bake_animation   mode(objects/composite，默认composite),objectIds,repla
 pixel_history          direction(undo/redo)。与手动撤销共用，选区编辑期间需先退出选区工具。
 pixel_save             当前设备 IndexedDB 保存完成后返回成功或错误。
 pixel_export           format(pixel/png/gif/sheet),from,to；pixel 为 gzip 压缩 v2 工程。PNG 默认当前帧；GIF/sheet 默认全部帧。
-                       烘焙后应指定 frameRange，排除源绘画帧。GIF 使用现有 216 色近似量化。
+                       烘焙后应指定 frameRange，排除源绘画帧。
+                       GIF 可传 gif:{maxEdge:512,colors:128,fps:15}；最长边 1..1024，不放大；
+                       colors 为16/32/64/128/256（包含透明色），fps 为0..50（0保留原帧率）。
+                       降帧不改变总时长；LZW、重复帧合并及变化区域压缩自动启用。
+                       GIF 逐帧处理，输出文件上限64 MiB；支持取消与版本检查。
 
 原生浏览器调用示例（不是额外全局变量或测试后门）
 ------------------------------------------------

@@ -277,3 +277,21 @@ test('clipping stacks must remain together when binding editable sources', () =>
   assert.throws(() => createObject(p, p.procedural, [1], null, '剪贴'), /底层/);
   assert.ok(createObject(p, p.procedural, [0, 1], null, '整体'));
 });
+
+test('bake sampling can override total frames or FPS without retiming the source scene', () => {
+  const scene = { range: [0.2, 4.2], fps: 30 };
+  const before = structuredClone(scene);
+  const sampled = sampleTimes(scene, { frameCount: 48 });
+  assert.equal(sampled.length, 48);
+  assert.equal(sampled[0].time, 0.2);
+  assert.ok(sampled.at(-1).time < 4.2);
+  assert.equal(
+    sampled.reduce((n, f) => n + f.duration, 0),
+    4000,
+  );
+  assert.equal(sampleTimes(scene, { fps: 15 }).length, 60);
+  assert.deepEqual(scene, before);
+  assert.throws(() => sampleTimes(scene, { frameCount: 1, fps: 1 }));
+  assert.throws(() => sampleTimes(scene, { frameCount: 241 }));
+  assert.throws(() => sampleTimes(scene, { frameCount: 201 }));
+});

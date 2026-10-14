@@ -402,6 +402,22 @@ test('dry-run does not mutate; baked pixels match every preview sample', async (
     assert.deepEqual(composite(f.s.project, i + 1), evaluateScene(c, scene, i / 6));
   assert.equal(f.s.history.count, count + 1);
 });
+test('bake frame count and FPS overrides preserve source timing and sample the complete range', async () => {
+  const f = await animated(),
+    scene = f.s.project.procedural;
+  assert.equal((await f.call('bake_animation', { dryRun: true, fps: 4 })).samples, 4);
+  assert.equal((await f.call('bake_animation', { dryRun: true, frameCount: 3 })).samples, 3);
+  const c = compileScene(f.s.project, scene);
+  const result = await f.call('bake_animation', { frameCount: 3 });
+  assert.deepEqual(result.frameRange, [1, 3]);
+  assert.equal(f.s.project.procedural.fps, 6);
+  assert.equal(
+    f.s.project.frames.slice(1).reduce((n, frame) => n + frame.duration, 0),
+    1000,
+  );
+  for (let i = 0; i < 3; i++)
+    assert.deepEqual(composite(f.s.project, i + 1), evaluateScene(c, scene, i / 3));
+});
 for (const kind of ['cancel', 'manual edit'])
   test(`baking aborts atomically after ${kind}`, async () => {
     const f = await animated(),

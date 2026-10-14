@@ -369,10 +369,12 @@ export const EDITOR_TOOLS = [
   tool(
     'bake_animation',
     '烘焙动画',
-    'Bake the procedural scene into editable frames/layers. dryRun returns exact capacity requirements without editing. Actual baking is cancellable and commits one undo step only if the revision still matches. Default creates a new group; replace=true replaces only compatible previous bake output. Sampling excludes the end point for seamless loops.',
+    'Bake the procedural scene into editable frames/layers. Optional frameCount OR fps overrides output sampling while preserving the scene duration and source settings. dryRun returns a capacity plan; compact byte counts are estimates. Actual baking is cancellable and commits one undo step only if the revision still matches. Default creates a new group; replace=true replaces only compatible previous bake output. Sampling excludes the end point for seamless loops.',
     change({
       mode: choice('objects', 'composite'),
       objectIds: array(string(100), 32, 1),
+      frameCount: integer(1, 240),
+      fps: number(0.01, 50),
       replace: boolean,
       dryRun: boolean,
     }),
@@ -392,8 +394,20 @@ export const EDITOR_TOOLS = [
   tool(
     'export',
     '导出作品',
-    'Download an editable .pixel document, PNG frame, animated GIF or PNG sprite sheet. from/to are inclusive frame indices; defaults to current frame for PNG, all frames for GIF/sheet. For baked animation use the returned bake frame range to exclude source frames. Output obeys export memory limits. Returns filename/byte count, not the whole project in the chat.',
-    change({ format: choice('pixel', 'png', 'gif', 'sheet'), from: index, to: index }, ['format']),
+    'Download an editable .pixel document, PNG frame, animated GIF or PNG sprite sheet. from/to are inclusive frame indices; defaults to current frame for PNG, all frames for GIF/sheet. For baked animation use the returned bake frame range to exclude source frames. Optional gif settings: maxEdge (no upscaling), colors (16/32/64/128/256), fps (0 preserves source; otherwise caps sampling without changing duration). GIF uses LZW, duplicate frame merging and changed-region compression; export is cancellable and limited to 64 MiB. Returns filename/byte count, not the whole project in the chat.',
+    change(
+      {
+        format: choice('pixel', 'png', 'gif', 'sheet'),
+        from: index,
+        to: index,
+        gif: object({
+          maxEdge: integer(1, 1024),
+          colors: { type: 'integer', enum: [16, 32, 64, 128, 256] },
+          fps: number(0, 50),
+        }),
+      },
+      ['format'],
+    ),
   ),
 ];
 

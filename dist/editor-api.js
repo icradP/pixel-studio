@@ -280,6 +280,8 @@ export function createEditorAPI(host) {
         const options = {
           mode: args.mode || 'composite',
           objectIds: args.objectIds || null,
+          frameCount: args.frameCount,
+          fps: args.fps,
           replace: args.replace || false,
           signal: controller.signal,
         };
