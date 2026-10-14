@@ -1,7 +1,10 @@
 import { reducedMotion } from './motion.js';
 
 // The lifted preview follows the pointer while the source keeps its list geometry.
-export function itemGestures(element, { scroller, swipe, drop, holdDelay = 360 }) {
+export function itemGestures(
+  element,
+  { scroller, swipe, drop, holdDelay = 280, insertion = false, rightSwipe = false },
+) {
   let state,
     timer,
     target,
@@ -17,6 +20,7 @@ export function itemGestures(element, { scroller, swipe, drop, holdDelay = 360 }
     element.classList.remove('item-engaged');
     face()?.style.removeProperty('transform');
     target?.classList.remove('item-drop-target');
+    target?.removeAttribute('data-drop-position');
     if (ghost) {
       const preview = ghost,
         rect = target?.getBoundingClientRect();
@@ -51,11 +55,23 @@ export function itemGestures(element, { scroller, swipe, drop, holdDelay = 360 }
       const candidate = document.elementFromPoint(state.px, state.py)?.closest('[data-drag-key]');
       if (candidate !== target) {
         target?.classList.remove('item-drop-target');
+        target?.removeAttribute('data-drop-position');
         target =
           candidate !== element && candidate?.parentElement === element.parentElement
             ? candidate
             : null;
         target?.classList.add('item-drop-target');
+      }
+      if (insertion && target) {
+        const box = target.getBoundingClientRect(),
+          ratio = (state.py - box.top) / box.height;
+        state.placement =
+          target.dataset.dropGroup && ratio > 0.3 && ratio < 0.7
+            ? 'inside'
+            : ratio < 0.5
+              ? 'above'
+              : 'below';
+        target.dataset.dropPosition = state.placement;
       }
       const box = scroller.getBoundingClientRect();
       const velocity =
@@ -70,7 +86,7 @@ export function itemGestures(element, { scroller, swipe, drop, holdDelay = 360 }
       }
     } else if (state.axis === 'x' && face()) {
       element.classList.add('item-swiping');
-      face().style.transform = `translate3d(${Math.max(-186, Math.min(0, state.swiped + state.px - state.x))}px,0,0)`;
+      face().style.transform = `translate3d(${Math.max(-186, Math.min(rightSwipe ? 156 : 0, state.swiped + state.px - state.x))}px,0,0)`;
     }
   }
   const request = () => {
@@ -105,10 +121,15 @@ export function itemGestures(element, { scroller, swipe, drop, holdDelay = 360 }
       lastY: event.clientY,
       drag: false,
       axis: null,
-      swiped: element.classList.contains('swiped') ? -186 : 0,
+      swiped: element.classList.contains('swiped')
+        ? -186
+        : element.classList.contains('swiped-right')
+          ? 156
+          : 0,
     };
     element.classList.add('item-engaged');
-    (event.target.closest('[data-item-touch]') || element).setPointerCapture(event.pointerId);
+    if (event.isTrusted)
+      (event.target.closest('[data-item-touch]') || element).setPointerCapture(event.pointerId);
     timer = setTimeout(() => {
       if (!state || state.axis || !drop || !element.isConnected) return;
       state.drag = true;
@@ -162,12 +183,13 @@ export function itemGestures(element, { scroller, swipe, drop, holdDelay = 360 }
     if (!state) return;
     const dx = state.px - state.x,
       destination = target?.dataset.dragKey,
+      placement = state.placement,
       drag = state.drag,
       axis = state.axis;
     state = null;
     if (drag || axis) suppressUntil = performance.now() + 400;
     clean(drag && destination !== undefined);
-    if (drag && destination !== undefined) drop?.(destination);
+    if (drag && destination !== undefined) drop?.(destination, placement);
     else if (!drag && axis === 'x' && Math.abs(dx) > 35) swipe?.(dx < 0 ? 'left' : 'right');
   });
   for (const type of ['pointercancel', 'lostpointercapture'])

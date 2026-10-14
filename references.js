@@ -323,7 +323,7 @@ export function createReferences(host) {
       const p = point(event);
       pointers.set(event.pointerId, p);
       tapEligible = pointers.size === 1;
-      viewport.setPointerCapture(event.pointerId);
+      if (event.isTrusted) viewport.setPointerCapture(event.pointerId);
       clearTimeout(hold);
       startGesture();
       if (pointers.size === 1) {

@@ -223,6 +223,21 @@ button {
   outline: 2px solid #72baffaa !important;
   outline-offset: 0;
 }
+.item-drop-target[data-drop-position] {
+  outline: 0 !important;
+}
+.item-drop-target[data-drop-position='above'] {
+  box-shadow: 0 -3px #89c7ff;
+}
+.item-drop-target[data-drop-position='below'] {
+  box-shadow: 0 3px #89c7ff;
+}
+.item-drop-target[data-drop-position='inside'] .layer-face {
+  background: #285679;
+}
+.layer.item-lifted {
+  transition: opacity 120ms;
+}
 .item-drag-preview {
   transform-origin: center;
   border-radius: 12px;

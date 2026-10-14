@@ -776,3 +776,34 @@
 .brush-studio-tabs button[hidden] {
   display: none;
 }
+
+.layer-merge-actions {
+  visibility: hidden;
+  display: flex;
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 156px;
+}
+.layer.swiped-right .layer-merge-actions,
+.layer.item-swiping .layer-merge-actions {
+  visibility: visible;
+}
+#layer-list .layer-merge-actions button {
+  flex: 1;
+  border-radius: 0;
+  font-size: 12px;
+  background: #275e87;
+}
+.layer.swiped-right .layer-face {
+  transform: translateX(156px);
+}
+.item-drag-preview .layer-merge-actions {
+  display: none;
+}
+.path-node-panel,
+.track-node-panel {
+  margin: 12px 0;
+  padding: 10px;
+  background: #ffffff08;
+  border-radius: 12px;
+}

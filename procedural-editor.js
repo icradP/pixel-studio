@@ -1,5 +1,6 @@
 import { EFFECT_NAMES, EFFECT_DEFAULTS } from './scene-effects.js';
 import { batchEffectsPanel, lightsPanel } from './scene-fx-panel.js';
+import { createLightEditor } from './light-editor.js';
 import {
   createScene,
   ensureSourceIds,
@@ -19,6 +20,8 @@ import {
   bakeScene,
 } from './procedural.js';
 import { fitPath, curveValue, setTransformKey, CURVES } from './procedural-path.js';
+import { pathNodePanel } from './path-node-panel.js';
+import { trackNodePanel } from './track-node-panel.js';
 import { curveEditor } from './procedural-curve.js';
 import { floatingPanel } from './floating.js';
 import { showDialog, hideDialog } from './dialogs.js';
@@ -81,6 +84,25 @@ export function createProceduralEditor(host) {
     scene = () => draft || host.project().procedural,
     object = () => scene()?.objects.find((o) => o.id === selected),
     snap = (t) => clamp(Math.round(t * scene().fps) / scene().fps, 0, scene().duration);
+  const lightEditor = createLightEditor({
+    scene,
+    project: host.project,
+    time: () => time,
+    scale: host.scale,
+    selected: () => selectedLight,
+    select: (id) => {
+      selectedLight = id;
+      selected = null;
+      renderRows();
+      if (panelState?.kind === 'lights') renderPanel();
+    },
+    preview: (next) => {
+      draft = next;
+      host.render();
+    },
+    render: host.render,
+    commit: commitDraft,
+  });
   const safely = (fn) => {
     try {
       return fn();
@@ -118,7 +140,7 @@ export function createProceduralEditor(host) {
     }
     q('#scene-warning').hidden = !error;
     q('#scene-warning').textContent = error;
-    q('#scene-bake').disabled = !!error || !scene().objects.length;
+    q('#scene-bake').disabled = !!error || (!scene().objects.length && !scene().lights?.length);
     return compiled;
   }
   function edit(fn) {
@@ -180,6 +202,8 @@ export function createProceduralEditor(host) {
     }
   }
   function select(id, render = true) {
+    selectedLight = null;
+    lightEditor.setMode('move');
     selected = id;
     solo = null;
     rangeFirst = null;
@@ -211,6 +235,7 @@ export function createProceduralEditor(host) {
     time = snap(t);
     updateClock();
     host.render();
+    if (panelState?.kind === 'lights') renderPanel();
   }
   function pause() {
     playing = false;
@@ -274,7 +299,7 @@ export function createProceduralEditor(host) {
       x = e.clientX,
       edge = e.target.dataset.edge;
     draft = structuredClone(before);
-    element.setPointerCapture(e.pointerId);
+    if (e.isTrusted) element.setPointerCapture(e.pointerId);
     const finish = (cancel) => {
       timelineCancel = null;
       element.onpointermove =
@@ -308,7 +333,8 @@ export function createProceduralEditor(host) {
   function renderRows() {
     const s = scene();
     if (!s) return;
-    q('#scene-empty').hidden = !!s.objects.length;
+    q('#scene-empty').hidden = !!(s.objects.length || s.lights?.length);
+    q('#scene-bake').disabled = !!error || (!s.objects.length && !s.lights?.length);
     q('#scene-scrub').max = s.duration;
     q('#scene-scrub').step = 1 / s.fps;
     q('#scene-loop').setAttribute('aria-pressed', s.loop);
@@ -352,12 +378,13 @@ export function createProceduralEditor(host) {
         e.preventDefault();
         pause();
         selected = o.id;
+        selectedLight = null;
         const r = lane.getBoundingClientRect(),
           at = (x) => snap(((x - r.left) / r.width) * s.duration),
           start = at(e.clientX);
         time = start;
         range = [start, Math.min(s.duration, start + 1 / s.fps)];
-        lane.setPointerCapture(e.pointerId);
+        if (e.isTrusted) lane.setPointerCapture(e.pointerId);
         const drawRange = () => {
           const el = row.querySelector('.scene-selected-range');
           el.style.left = (range[0] / s.duration) * 100 + '%';
@@ -420,6 +447,53 @@ export function createProceduralEditor(host) {
       }
       tracks.append(row);
     }
+    for (const l of s.lights || []) {
+      const row = document.createElement('div');
+      row.className = 'scene-track light-track' + (selectedLight === l.id ? ' selected' : '');
+      row.dataset.lightId = l.id;
+      row.style.setProperty('--object-color', '#ffe6a0');
+      row.innerHTML = `<div class="scene-track-label"><button class="scene-light-name" aria-label="选择光源 ${esc(l.name)}">☀ ${esc(l.name)}</button><button class="scene-light-toggle" aria-label="${l.enabled ? '关闭' : '开启'}光源 ${esc(l.name)}">${l.enabled ? '◉' : '○'}</button></div><div class="scene-lane"><button class="scene-motion" aria-label="${esc(l.name)}照明区间" style="left:${(l.start / s.duration) * 100}%;width:${((l.end - l.start) / s.duration) * 100}%">光照</button><div class="scene-playhead"></div></div>`;
+      const pick = () => {
+        selectedLight = l.id;
+        selected = null;
+        lightEditor.setMode('move');
+        renderRows();
+        openPanel('lights');
+      };
+      row.querySelector('.scene-light-name').onclick = pick;
+      row.querySelector('.scene-motion').onclick = pick;
+      row.querySelector('.scene-light-toggle').onclick = () =>
+        edit((n) => {
+          const v = n.lights.find((v) => v.id === l.id);
+          v.enabled = !v.enabled;
+        });
+      const times = [
+        ...new Set(
+          [
+            ...(l.positionKeys || []),
+            ...(l.radiusKeys || []),
+            ...(l.intensityKeys || []),
+            ...(l.keys || []),
+          ].map((k) => k.t),
+        ),
+      ];
+      for (const t of times) {
+        const key = document.createElement('button');
+        key.className = 'scene-key';
+        key.textContent = '◆';
+        key.style.left = (t / s.duration) * 100 + '%';
+        key.setAttribute('aria-label', `${l.name}关键帧 ${t.toFixed(3)} 秒`);
+        key.onclick = () => {
+          selectedLight = l.id;
+          selected = null;
+          seek(t);
+          renderRows();
+          openPanel('lights');
+        };
+        row.querySelector('.scene-lane').append(key);
+      }
+      tracks.append(row);
+    }
     tracks.scrollTop = scroll;
     updateClock();
   }
@@ -441,7 +515,7 @@ export function createProceduralEditor(host) {
         onClose: () => {
           panelCleanup?.();
           panelCleanup = null;
-          if (!gesture && !timelineCancel) {
+          if (!gesture && !lightEditor.active && !timelineCancel) {
             draft = null;
             host.render();
           }
@@ -464,6 +538,9 @@ export function createProceduralEditor(host) {
     panelCleanup = null;
     const body = inspector.querySelector('.window-body'),
       top = body.scrollTop,
+      openDetails = [...body.querySelectorAll('details[open]')].map(
+        (d) => d.querySelector('summary')?.textContent,
+      ),
       s = scene(),
       o = object(),
       kind = panelState.kind;
@@ -485,7 +562,16 @@ export function createProceduralEditor(host) {
         project: host.project,
         edit,
         selectedLight,
-        setSelectedLight: (id) => (selectedLight = id),
+        setSelectedLight: (id) => {
+          selectedLight = id;
+          selected = null;
+          renderRows();
+          host.render();
+        },
+        canvas: lightEditor,
+        selection: () => sourceSelection,
+        toast: host.toast,
+        time: () => time,
       });
     } else if (kind === 'batch') {
       batchEffectsPanel(body, { scene, selected, edit, toast: host.toast, targets: effectTargets });
@@ -504,6 +590,7 @@ export function createProceduralEditor(host) {
             const next = createObject(p, p.procedural, indices, mask, name);
             p.procedural.objects.push(next);
             selected = next.id;
+            selectedLight = null;
           });
           setMode('draw');
           openPanel('object');
@@ -524,6 +611,25 @@ export function createProceduralEditor(host) {
         .join(
           '',
         )}</div><div class="scene-two"><button id="scene-key-add">记录当前姿态</button><button id="scene-key-remove">删除此时刻关键帧</button></div><p class="help">预览位置 ${state.x.toFixed(1)}, ${state.y.toFixed(1)} · ${o.path.length} 个路径控制点</p><button id="scene-remove-object" class="danger panel-wide">移除动画对象</button>`;
+      pathNodePanel(body, o.path, {
+        commit: (path) => editObject((v) => (v.path = path)),
+        toast: host.toast,
+        editCanvas: () => {
+          setMode('edit');
+          float?.close();
+        },
+      });
+      trackNodePanel(body, o.tracks, {
+        duration: s.duration,
+        commit: (tracks) => editObject((v) => (v.tracks = tracks)),
+        toast: host.toast,
+        fields: [
+          ['rotation', '旋转', 0, -36000, 36000],
+          ['scaleX', '横向比例', 1, 0.05, 20],
+          ['scaleY', '纵向比例', 1, 0.05, 20],
+          ['opacity', '不透明度', 1, 0, 1],
+        ],
+      });
       $('#scene-rename').onchange = (e) =>
         editObject((v) => (v.name = e.target.value.trim().slice(0, 80) || v.name));
       on('#scene-solo', () => {
@@ -600,6 +706,11 @@ export function createProceduralEditor(host) {
           })
         )
           editObject((v, n) => {
+            for (const light of n.lights || [])
+              if (light.targets?.includes(v.id)) {
+                light.targets = light.targets.filter((id) => id !== v.id);
+                if (!light.targets.length) light.enabled = false;
+              }
             n.objects = n.objects.filter((item) => item.id !== v.id);
             selected = n.objects[0]?.id;
           });
@@ -651,6 +762,9 @@ export function createProceduralEditor(host) {
           .forEach((point) => point.setAttribute('tabindex', '-1'));
       }
     }
+    body.querySelectorAll('details').forEach((d) => {
+      if (openDetails.includes(d.querySelector('summary')?.textContent)) d.open = true;
+    });
     body.scrollTop = top;
     float?.clamp();
   }
@@ -1000,6 +1114,7 @@ export function createProceduralEditor(host) {
   function begin(e, p) {
     if (!active || busy) return;
     pause();
+    if (lightEditor.begin(p, host.scale())) return;
     const o = object(),
       scale = host.scale(),
       near = (q) => Math.hypot(q.x - p.x, q.y - p.y) < 10 / scale;
@@ -1088,6 +1203,10 @@ export function createProceduralEditor(host) {
       }
   }
   function move(e, p) {
+    if (lightEditor.active) {
+      lightEditor.move(p);
+      return;
+    }
     if (!gesture) return;
     p = { x: clamp(p.x, -4096, 8192), y: clamp(p.y, -4096, 8192) };
     const g = gesture,
@@ -1167,6 +1286,7 @@ export function createProceduralEditor(host) {
     host.render();
   }
   function end(cancel = false) {
+    if (lightEditor.end(cancel)) return;
     if (!gesture) return;
     const g = gesture;
     gesture = null;
@@ -1186,6 +1306,7 @@ export function createProceduralEditor(host) {
   }
   function draw(ctx, scale) {
     if (!active || playing) return;
+    lightEditor.draw(ctx, scale);
     const c = prepare();
     if (!c) return;
     const o = object();
@@ -1285,6 +1406,7 @@ export function createProceduralEditor(host) {
     time = 0;
     range = [...scene().range];
     selected = scene().objects[0]?.id || null;
+    selectedLight = null;
     lastScene = scene();
     lastRevision = host.revision();
     root.hidden = false;
@@ -1294,7 +1416,7 @@ export function createProceduralEditor(host) {
     prepare();
     host.resize();
     host.render();
-    if (!scene().objects.length) openPanel('create');
+    if (!scene().objects.length && !scene().lights?.length) openPanel('create');
   }
   function leave() {
     pause();
@@ -1323,7 +1445,8 @@ export function createProceduralEditor(host) {
       lastScene = host.project().procedural;
       lastRevision = host.revision();
       time = clamp(time, 0, scene().duration);
-      if (!object()) selected = scene().objects[0]?.id || null;
+      if (!scene().lights?.some((l) => l.id === selectedLight)) selectedLight = null;
+      if (!object() && !selectedLight) selected = scene().objects[0]?.id || null;
       renderRows();
       if (!panelEditing) renderPanel();
     }
@@ -1334,7 +1457,13 @@ export function createProceduralEditor(host) {
   q('#scene-curve').onclick = () => togglePanel('curve');
   q('#scene-effects').onclick = () => togglePanel('effects');
   q('#scene-batch-effects').onclick = () => togglePanel('batch');
-  q('#scene-lights').onclick = () => togglePanel('lights');
+  q('#scene-lights').onclick = () => {
+    selectedLight ||= scene().lights?.[0]?.id || null;
+    if (selectedLight) selected = null;
+    renderRows();
+    togglePanel('lights');
+    host.render();
+  };
   q('#scene-bake').onclick = () => togglePanel('bake');
   q('#scene-undo').onclick = () => {
     timelineCancel?.();
@@ -1367,7 +1496,7 @@ export function createProceduralEditor(host) {
       return active;
     },
     get busy() {
-      return busy || !!gesture || !!timelineCancel || panelEditing;
+      return busy || !!gesture || lightEditor.active || !!timelineCancel || panelEditing;
     },
     get time() {
       return time;
@@ -1398,7 +1527,7 @@ export function createProceduralEditor(host) {
         seek(time + (e.key === 'ArrowLeft' ? -1 : 1) / scene().fps);
         return true;
       }
-      if (e.key === 'Escape' && gesture) {
+      if (e.key === 'Escape' && (gesture || lightEditor.active)) {
         end(true);
         return true;
       }

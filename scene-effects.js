@@ -1,4 +1,5 @@
 import { curveValue, pathPoint } from './procedural-path.js';
+import { keyPosition, regionContains } from './light-model.js';
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 export const EFFECT_NAMES = {
   rotate: '旋转',
@@ -92,7 +93,7 @@ export function extraEffects(o, t) {
 }
 export function lightState(light, t, duration) {
   const u = clamp(t / duration, 0, 1),
-    pos = light.path?.length ? pathPoint(light.path, u) : light;
+    pos = keyPosition(light.positionKeys, t, light.path?.length ? pathPoint(light.path, u) : light);
   const a = rgb(light.color),
     b = rgb(light.colorTo || light.color),
     mix = light.colorCycle ? (1 - Math.cos(u * Math.PI * 2)) / 2 : 0;
@@ -103,26 +104,33 @@ export function lightState(light, t, duration) {
   return {
     x: pos.x,
     y: pos.y,
-    radius: light.radius,
+    radius: curveValue(light.radiusKeys || [], t, light.radius),
     color: a.map((v, i) => v + (b[i] - v) * mix),
-    strength: light.intensity * modulation * curveValue(light.keys || [], t, 1),
+    intensity: curveValue(light.intensityKeys || [], t, light.intensity),
+    strength:
+      curveValue(light.intensityKeys || [], t, light.intensity) *
+      modulation *
+      curveValue(light.keys || [], t, 1),
   };
 }
 // Screen blend changes RGB only. Transparent artwork stays transparent; no full-canvas scratch per light.
-export function applyLights(pixels, w, h, scene, t) {
+export function applyLights(pixels, w, h, scene, t, objectId = null) {
   for (const light of scene.lights || []) {
     if (!light.enabled || t < light.start || t >= light.end) continue;
+    if (light.targets?.length ? !light.targets.includes(objectId) : objectId !== null) continue;
     const s = lightState(light, t, scene.duration);
     if (s.strength <= 0) continue;
-    const x0 = Math.max(0, Math.floor(s.x - s.radius)),
-      x1 = Math.min(w, Math.ceil(s.x + s.radius)),
-      y0 = Math.max(0, Math.floor(s.y - s.radius)),
-      y1 = Math.min(h, Math.ceil(s.y + s.radius));
+    const global = light.coverage === 'global',
+      area = light.area,
+      x0 = Math.max(0, area?.x ?? 0, global ? 0 : Math.floor(s.x - s.radius)),
+      x1 = Math.min(w, area ? area.x + area.w : w, global ? w : Math.ceil(s.x + s.radius)),
+      y0 = Math.max(0, area?.y ?? 0, global ? 0 : Math.floor(s.y - s.radius)),
+      y1 = Math.min(h, area ? area.y + area.h : h, global ? h : Math.ceil(s.y + s.radius));
     for (let y = y0; y < y1; y++)
       for (let x = x0; x < x1; x++) {
         const i = (y * w + x) * 4;
-        if (!pixels[i + 3]) continue;
-        const d = Math.hypot(x + 0.5 - s.x, y + 0.5 - s.y) / s.radius;
+        if (!pixels[i + 3] || !regionContains(light.region, y * w + x)) continue;
+        const d = global ? 0 : Math.hypot(x + 0.5 - s.x, y + 0.5 - s.y) / s.radius;
         if (d >= 1) continue;
         const strength = clamp(s.strength * (1 - d) * (1 - d), 0, 1);
         for (let c = 0; c < 3; c++)

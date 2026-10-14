@@ -209,7 +209,7 @@ export function colorStudio(root, host) {
       x >= 70 && x <= 190 && y >= 70 && y <= 190 ? 'sv' : dist >= 96 && dist <= 130 ? 'hue' : null;
     if (drag) {
       previous = host.color();
-      wheel.setPointerCapture(e.pointerId);
+      if (e.isTrusted) wheel.setPointerCapture(e.pointerId);
       move(e);
     }
   };

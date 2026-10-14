@@ -13,7 +13,7 @@ import {
   setDurations,
   layerLocked,
 } from './animation-edit.js';
-import { duplicateLayer } from './layer-actions.js';
+import { duplicateLayer, dropLayer, mergeLayers, mergeUp } from './layer-actions.js';
 import { expandCanvas } from './canvas-resize.js';
 import {
   createScene,
@@ -57,7 +57,21 @@ function layerEdits(p, operations) {
       o,
       {
         add: ['action', 'name', 'parent', 'group'],
-        update: ['action', 'layer', 'name', 'visible', 'locked', 'alphaLock', 'opacity'],
+        update: [
+          'action',
+          'layer',
+          'name',
+          'visible',
+          'locked',
+          'alphaLock',
+          'opacity',
+          'blend',
+          'clipping',
+        ],
+        reorder: ['action', 'layer', 'target', 'placement'],
+        merge_up: ['action', 'layer'],
+        merge_down: ['action', 'layer'],
+        merge_group: ['action', 'layer'],
         duplicate: ['action', 'layer'],
         delete: ['action', 'layer'],
         move: ['action', 'layer', 'parent'],
@@ -81,11 +95,15 @@ function layerEdits(p, operations) {
       focus = addLayer(p, o.parent ?? -1, o.group ?? false);
       if (o.name !== undefined) p.layers[focus].name = o.name;
     } else if (o.action === 'update') {
-      for (const k of ['name', 'visible', 'locked', 'alphaLock', 'opacity'])
+      for (const k of ['name', 'visible', 'locked', 'alphaLock', 'opacity', 'blend', 'clipping'])
         if (o[k] !== undefined) p.layers[o.layer][k] = o[k];
       focus = o.layer;
     } else if (o.action === 'duplicate') focus = duplicateLayer(p, o.layer);
     else if (o.action === 'delete') focus = deleteLayer(p, o.layer);
+    else if (o.action === 'reorder') focus = dropLayer(p, o.layer, o.target, o.placement);
+    else if (o.action === 'merge_up') focus = mergeUp(p, o.layer);
+    else if (o.action === 'merge_down' || o.action === 'merge_group')
+      focus = mergeLayers(p, o.layer, o.action === 'merge_group');
     else {
       if (o.parent === undefined) throw Error('移动图层需要 parent');
       if (o.parent >= 0 && (!p.layers[o.parent]?.group || layerLocked(p, o.parent)))
@@ -160,6 +178,11 @@ function animationEdits(p, args, activeFrame) {
       )
         throw Error('请先解锁动画对象');
       if (op.action === 'delete') {
+        for (const light of scene.lights || [])
+          if (light.targets?.includes(o.id)) {
+            light.targets = light.targets.filter((id) => id !== o.id);
+            if (!light.targets.length) light.enabled = false;
+          }
         scene.objects.splice(scene.objects.indexOf(o), 1);
         continue;
       }
@@ -221,6 +244,10 @@ export function createEditorAPI(host) {
         locked: layerLocked(p, index),
         ownLocked: !!l.locked,
         alphaLock: !!l.alphaLock,
+        blend: l.blend || 0,
+        clipping: !!l.clipping,
+        mask: !!l.mask,
+        adjustments: structuredClone(l.adjustments || {}),
       })),
       frames: p.frames.map((f, index) => ({ index, id: f.id || null, duration: f.duration })),
       selection: host.selectionInfo?.() || { active: !!s.selection },

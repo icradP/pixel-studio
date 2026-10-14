@@ -1,3 +1,4 @@
+import { validRegion } from './light-model.js';
 // Versioned, pixel-free animation metadata. Source references survive layer/frame reordering.
 export const SCENE_LIMITS = Object.freeze({
   objects: 32,
@@ -145,6 +146,28 @@ export function validateScene(scene, project) {
         !finite(l.phase ?? 0, -100, 100) ||
         (l.colorCycle !== undefined && typeof l.colorCycle !== 'boolean') ||
         !curve(l.keys || [], 60, 0, 4) ||
+        !curve(l.radiusKeys || [], 60, 1, 2048) ||
+        !curve(l.intensityKeys || [], 60, 0, 4) ||
+        (l.coverage !== undefined && !['radial', 'global'].includes(l.coverage)) ||
+        (l.targets !== undefined &&
+          (!list(l.targets, SCENE_LIMITS.objects) ||
+            new Set(l.targets).size !== l.targets.length ||
+            l.targets.some((id) => !scene.objects.some((o) => o.id === id)))) ||
+        !validRegion(l.region, project.w, project.h) ||
+        (l.area !== undefined &&
+          (!l.area ||
+            !['x', 'y', 'w', 'h'].every((k) => Number.isInteger(l.area[k])) ||
+            l.area.x < 0 ||
+            l.area.y < 0 ||
+            l.area.w < 1 ||
+            l.area.h < 1 ||
+            l.area.x + l.area.w > project.w ||
+            l.area.y + l.area.h > project.h)) ||
+        (l.positionKeys !== undefined &&
+          (!list(l.positionKeys, SCENE_LIMITS.keys) ||
+            l.positionKeys.some(
+              (k, i) => !point(k) || !finite(k.t, 0, 60) || (i && k.t <= l.positionKeys[i - 1].t),
+            ))) ||
         (l.path !== undefined &&
           (!list(l.path, 64) ||
             !l.path.length ||
@@ -308,6 +331,22 @@ export function moveSceneCanvas(scene, w, h, left, top) {
   for (const light of next.lights || []) {
     light.x += left;
     light.y += top;
+    for (const p of light.positionKeys || []) {
+      p.x += left;
+      p.y += top;
+    }
+    if (light.area) {
+      light.area.x += left;
+      light.area.y += top;
+    }
+    if (light.region) {
+      const r = light.region,
+        mask = new Uint8Array(w * h);
+      for (let i = 0; i < r.runs.length; i += 2)
+        for (let p = r.runs[i]; p < r.runs[i] + r.runs[i + 1]; p++)
+          mask[(Math.floor(p / r.w) + top) * w + (p % r.w) + left] = 1;
+      light.region = encodeRegion(mask, w, h);
+    }
     for (const n of light.path || [])
       for (const p of [n, n.in, n.out]) {
         p.x += left;

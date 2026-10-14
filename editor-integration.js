@@ -1,4 +1,5 @@
 import { createWebMCP, modelContext } from './webmcp.js';
+import { createInterfaceAPI } from './editor-interface.js';
 
 export function createEditorIntegration(host) {
   const context = modelContext(document, navigator),
@@ -69,10 +70,29 @@ export function createEditorIntegration(host) {
           update();
         },
       });
-      adapter = createWebMCP(api, context, (value) => {
-        status = value;
-        update();
-      });
+      const ui = createInterfaceAPI({ ...host, pointerBusy: () => pointers.size > 0 });
+      adapter = createWebMCP(
+        {
+          ...api,
+          tools: [...api.tools, ...ui.tools],
+          cancel: () => {
+            api.cancel();
+            ui.cancel();
+          },
+          execute: (name, args, options) => {
+            const isUI = ui.tools.some((t) => t.name === name),
+              read = name === 'pixel_get_interface' || name === 'pixel_get_document';
+            if (!read && (isUI ? api.getDocument().operation : ui.busy))
+              throw Object.assign(Error('另一个编辑操作正在执行'), { code: 'EDITOR_BUSY' });
+            return isUI ? ui.execute(name, args, options) : api.execute(name, args, options);
+          },
+        },
+        context,
+        (value) => {
+          status = value;
+          update();
+        },
+      );
     });
     try {
       await loading;

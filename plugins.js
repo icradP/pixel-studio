@@ -170,7 +170,7 @@ export function openPlugins(host, initialPlugin = null) {
     handle.onpointerdown = (e) => {
       e.preventDefault();
       dragPin = { id: handle.dataset.pluginDrag, x: e.clientX, y: e.clientY };
-      handle.setPointerCapture(e.pointerId);
+      if (e.isTrusted) handle.setPointerCapture(e.pointerId);
     };
     handle.onpointermove = (e) => {
       if (!dragPin) return;

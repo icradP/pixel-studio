@@ -131,7 +131,7 @@ export function openArtworkPanel(host, kind = 'text') {
           ? quad.findIndex((q) => Math.hypot(q.x - pos.x, q.y - pos.y) < radius)
           : -1;
       drag = { start: pos, quad: structuredClone(quad), corner };
-      canvas.setPointerCapture(e.pointerId);
+      if (e.isTrusted) canvas.setPointerCapture(e.pointerId);
     };
     canvas.onpointermove = (e) => {
       if (!drag) return;

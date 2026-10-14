@@ -56,7 +56,6 @@
   scrollbar-width: thin;
   transition:
     opacity 0.18s,
-    max-height 0.22s,
     padding 0.22s;
   max-height: calc(var(--window-available-height, calc(100dvh - 92px)) - 54px);
 }
