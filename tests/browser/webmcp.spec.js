@@ -13,6 +13,9 @@ async function load(page) {
   await expect(page.locator('body')).not.toHaveAttribute('inert', '');
   if (await page.locator('#dismiss-hint').isVisible()) await page.locator('#dismiss-hint').click();
   expect(await page.evaluate(() => typeof document.modelContext?.getTools)).toBe('function');
+  await waitForTools(page);
+}
+async function waitForTools(page) {
   await expect
     .poll(() =>
       page.evaluate(
@@ -385,6 +388,7 @@ test('wide canvas, 81 layers and virtualized frame grid support WebMCP, scrollin
   await page.reload();
   await expect(page.locator('#project-detail')).toContainText('2048 × 8');
   await expect(page.locator('#canvas-info')).toContainText('81 层');
+  await waitForTools(page);
   expect((await state(page)).layers).toHaveLength(81);
   expect(errors).toEqual([]);
 });
