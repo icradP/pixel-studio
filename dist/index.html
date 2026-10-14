@@ -185,6 +185,33 @@
         hidden
       ></p>
       <div id="gallery-list" class="gallery-list"></div>
+      <section id="gallery-examples" aria-labelledby="gallery-examples-title">
+        <div class="gallery-examples-heading">
+          <h2 id="gallery-examples-title">示例作品</h2>
+          <span>打开一份副本，自由修改</span>
+        </div>
+        <button
+          id="open-pelican-example"
+          class="gallery-example"
+          aria-label="打开示例 鹈鹕骑车 · 海风慢行"
+        >
+          <img
+            src="./examples/pelican-cycling.png"
+            alt="戴着帽子与围巾的鹈鹕骑着红色自行车"
+            width="176"
+            height="128"
+            loading="lazy"
+            decoding="async"
+            draggable="false"
+          />
+          <span class="gallery-example-info">
+            <strong>鹈鹕骑车 · 海风慢行</strong>
+            <span>176 × 128 px · 6 图层 · 16 帧</span>
+            <span class="gallery-example-action">打开并编辑 <span aria-hidden="true">↗</span></span>
+          </span>
+        </button>
+        <p id="example-status" role="status" aria-live="polite" hidden></p>
+      </section>
       <p class="gallery-note">
         作品保存在此设备 · 换设备前请导出项目备份 <button id="new-demo">打开霓虹练习</button>
       </p>

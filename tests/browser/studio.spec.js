@@ -128,6 +128,9 @@ test('failed saves keep the current unsaved project when another project is requ
   await expect(page.locator('#frame-count')).toHaveText('07 FRAMES');
   await page.locator('#gallery').click();
   await expect(page.locator('#save-status')).toHaveText('保存失败，请导出备份');
+  await page.locator('#open-pelican-example').click();
+  await expect(page.locator('#example-status')).toContainText('请先保存或导出当前作品');
+  await expect(page.locator('#frame-count')).toHaveText('07 FRAMES');
   await page.locator('#new-demo').click();
   await expect(page.locator('#frame-count')).toHaveText('07 FRAMES');
   await expect(page.locator('#project-name')).toHaveText(name);

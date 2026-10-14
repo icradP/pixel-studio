@@ -8,7 +8,7 @@ const output = path.join(root, 'precache.js');
 const assets = (await readdir(root, { recursive: true }))
   .map((name) => name.replaceAll('\\', '/'))
   .filter(
-    (name) => /\.(?:js|css|html|webmanifest|svg|png|txt)$/.test(name) && name !== 'precache.js',
+    (name) => /\.(?:js|css|html|webmanifest|svg|png|gz|txt)$/.test(name) && name !== 'precache.js',
   )
   .sort();
 const hash = createHash('sha256');
@@ -19,7 +19,7 @@ for (const name of assets) {
   hash
     .update(name)
     .update('\0')
-    .update(name.endsWith('.png') ? bytes : bytes.toString('utf8').replace(/\r\n/g, '\n'));
+    .update(/\.(?:png|gz)$/.test(name) ? bytes : bytes.toString('utf8').replace(/\r\n/g, '\n'));
 }
 const manifest = {
   revision: hash.digest('hex').slice(0, 16),
