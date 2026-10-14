@@ -2404,7 +2404,7 @@ function settingsPanel() {
     <section class="setting-group"><h3>画室</h3>
       <button id="settings-export" class="panel-wide">分享与导出 <span>项目 · 图片 · 动画 ›</span></button><button id="settings-plugins" class="panel-wide">插件工作台 <span>5 个扩展 · ›</span></button>
       <button id="install-help" class="panel-wide">添加到主屏幕 <span>全屏使用 · ›</span></button>
-      <button id="check-update" class="panel-wide">检查更新 <span>v0.14.0</span></button>
+      <button id="check-update" class="panel-wide">检查更新 <span>v0.14.1</span></button>
     </section>`;
   editorIntegration.settings(panelContent('settings'));
   document
@@ -2691,6 +2691,35 @@ $('#new-form').onsubmit = async (e) => {
   await loadProject(p);
 };
 $('#new-demo').onclick = () => loadProject(demo());
+let exampleLoad = null;
+$('#gallery-dialog').addEventListener('close', () => exampleLoad?.abort());
+$('#open-pelican-example').onclick = async () => {
+  if (exampleLoad) return;
+  const controller = new AbortController(),
+    sourceId = id,
+    button = $('#open-pelican-example'),
+    status = $('#example-status');
+  exampleLoad = controller;
+  button.disabled = true;
+  button.setAttribute('aria-busy', 'true');
+  status.hidden = false;
+  status.textContent = '正在打开示例…';
+  try {
+    const { loadPelicanExample } = await import('./gallery-examples.js');
+    const p = await loadPelicanExample(controller.signal);
+    if (controller.signal.aborted || !$('#gallery-dialog').open || id !== sourceId) return;
+    if (!(await loadProject(p))) throw Error('请先保存或导出当前作品，再打开示例。');
+    status.hidden = true;
+    toast('已添加鹈鹕骑车副本 · 轻点播放查看动画');
+  } catch (error) {
+    if (!controller.signal.aborted) status.textContent = error.message || '示例打开失败，请重试。';
+  } finally {
+    if (controller.signal.aborted) status.hidden = true;
+    button.disabled = false;
+    button.removeAttribute('aria-busy');
+    exampleLoad = null;
+  }
+};
 $('#import-button').onclick = () => $('#file-input').click();
 $('#gallery-photos').onclick = () => $('#photo-input').click();
 $('#photo-input').onchange = (e) => $('#file-input').onchange(e);

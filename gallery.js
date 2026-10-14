@@ -34,6 +34,7 @@ export async function galleryView(host) {
       .forEach((button) => (button.disabled = busy || !selected.size));
     q('#gallery-rename').disabled = busy || selected.size !== 1;
     q('#gallery-unstack').hidden = !folder;
+    q('#gallery-examples').hidden = selecting || !!folder;
     root.setAttribute('aria-busy', String(busy));
     root.querySelectorAll('.project-card').forEach((card) => {
       const stack = layout.state.stacks.find((s) => s.id === card.dataset.id);
