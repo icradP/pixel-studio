@@ -1301,6 +1301,9 @@ export function createProceduralEditor(host) {
     get active() {
       return active;
     },
+    get busy() {
+      return busy || !!gesture || !!timelineCancel || panelEditing;
+    },
     get time() {
       return time;
     },
