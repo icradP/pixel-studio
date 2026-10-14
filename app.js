@@ -18,6 +18,7 @@ import {
   mixStrokeOpacity,
 } from './brushes.js';
 import { createToolBrushes } from './tool-brushes.js';
+import { copySelectionLayer } from './selection-layer.js';
 import { duplicateLayer, reorderBeside } from './layer-actions.js';
 import { itemGestures } from './item-gestures.js';
 import { virtualList } from './virtual-list.js';
@@ -2545,7 +2546,7 @@ function settingsPanel() {
     <section class="setting-group"><h3>画室</h3>
       <button id="settings-export" class="panel-wide">分享与导出 <span>项目 · 图片 · 动画 ›</span></button><button id="settings-plugins" class="panel-wide">插件工作台 <span>5 个扩展 · ›</span></button>
       <button id="install-help" class="panel-wide">添加到主屏幕 <span>全屏使用 · ›</span></button>
-      <button id="check-update" class="panel-wide">检查更新 <span>v0.16.0</span></button>
+      <button id="check-update" class="panel-wide">检查更新 <span>v0.16.1</span></button>
     </section>`;
   editorIntegration.settings(panelContent('settings'));
   document
@@ -2946,6 +2947,9 @@ document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && key === 'z') {
     e.preventDefault();
     e.shiftKey ? redo() : undo();
+  } else if ((e.ctrlKey || e.metaKey) && key === 'j' && selection) {
+    e.preventDefault();
+    if (!e.repeat) selectionUI.copyToLayer();
   } else if ((e.ctrlKey || e.metaKey) && key === 's') {
     e.preventDefault();
     saveCurrent();
@@ -3065,7 +3069,17 @@ async function init() {
     tool: () => tool,
     selectTool: chooseTool,
     historyChanged: updateHistory,
-    canEdit: () => !project.layers[layer].group && !layerLocked(project, layer),
+    canEdit: () =>
+      !project.layers[layer].group &&
+      !project.layers[layer].alphaLock &&
+      !layerLocked(project, layer),
+    canCopy: () => !project.layers[layer].group && !layerLocked(project, layer),
+    copyLayer: () => {
+      if (stroke || selectionUI?.transforming) throw Error('请先完成笔画或变换');
+      const next = clone(project);
+      const target = copySelectionLayer(next, frame, layer, selection);
+      commitProject(next, { focus: { layer: target }, preserveSelection: true });
+    },
     color: () => color,
     outline: () => openArtwork('outline'),
     scale: () => camera.scale,

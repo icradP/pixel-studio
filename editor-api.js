@@ -335,8 +335,7 @@ export function createEditorAPI(host) {
               return { revision: start.revision, changed: false, ...details };
             focus = { frame: args.frame, layer: args.layer };
           } else if (name === 'pixel_transform') {
-            transformPixels(next, args, start);
-            focus = { frame: args.frame, layer: args.layer };
+            focus = { frame: args.frame, layer: transformPixels(next, args, start) };
           } else if (name === 'pixel_add_text' || name === 'pixel_add_outline') {
             if (!next.frames[args.frame]) throw Error('帧索引无效');
             let pixels, label;

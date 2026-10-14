@@ -2,12 +2,14 @@ import { readCel } from './cel-storage.js';
 import { layerLocked } from './animation-edit.js';
 import { initialTransform, transformSelection } from './selection.js';
 import { assertBox } from './editor-drawing.js';
+import { copySelectionLayer } from './selection-layer.js';
 
 export function transformPixels(p, args, active) {
-  const layer = p.layers[args.layer],
-    cel = readCel(p.frames[args.frame]?.cels[args.layer]);
-  if (!layer || layer.group || !cel) throw Error('请选择有效的像素图层和帧');
-  if (layerLocked(p, args.layer) || layer.alphaLock) throw Error('变换前请解锁图层及透明度');
+  const layer = p.layers[args.layer];
+  if (!layer || layer.group || !p.frames[args.frame]) throw Error('请选择有效的像素图层和帧');
+  let cel = readCel(p.frames[args.frame].cels[args.layer]);
+  if (layerLocked(p, args.layer) || (!args.newLayer && layer.alphaLock))
+    throw Error('变换前请解锁图层及透明度');
   if (args.region && args.selection === 'current')
     throw Error('region 与 selection=current 不能同时使用');
   let mask;
@@ -25,6 +27,16 @@ export function transformPixels(p, args, active) {
   }
   const t = initialTransform(mask, p.w, p.h);
   if (!t) throw Error('图层或选区为空');
+  const target = args.newLayer ? copySelectionLayer(p, args.frame, args.layer, mask) : args.layer;
+  if (args.newLayer) {
+    if (
+      ['x', 'y', 'width', 'height', 'rotation', 'flipX', 'flipY', 'quad'].every(
+        (k) => args[k] === undefined,
+      )
+    )
+      return target;
+    cel = readCel(p.frames[args.frame].cels[target]);
+  }
   const x = args.x ?? t.cx - t.width / 2,
     y = args.y ?? t.cy - t.height / 2;
   t.width = args.width ?? t.width;
@@ -34,7 +46,8 @@ export function transformPixels(p, args, active) {
   t.angle = ((args.rotation ?? 0) * Math.PI) / 180;
   t.flipX = args.flipX ?? false;
   t.flipY = args.flipY ?? false;
-  t.copy = args.copy ?? false;
+  t.copy = !args.newLayer && (args.copy ?? false);
   if (args.quad) t.quad = args.quad;
-  p.frames[args.frame].cels[args.layer] = transformSelection(cel, p.w, p.h, mask, t).pixels;
+  p.frames[args.frame].cels[target] = transformSelection(cel, p.w, p.h, mask, t).pixels;
+  return target;
 }
