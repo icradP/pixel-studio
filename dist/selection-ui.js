@@ -43,6 +43,15 @@ export function createSelectionController(host) {
     '</div>';
   document.body.append(bar);
   const q = (s) => bar.querySelector(s);
+  const transformDetails = document.createElement('details');
+  transformDetails.id = 'transform-details';
+  transformDetails.innerHTML = '<summary>精确调整 · 位置、尺寸与透视</summary>';
+  const transformRows = [...q('#transform-options').children];
+  transformRows[0].classList.add('transform-perspective-options');
+  transformRows[1].classList.add('transform-coordinates');
+  transformDetails.append(transformRows[0], transformRows[1]);
+  q('#transform-options').prepend(transformDetails);
+  q('#transform-options').append(transformRows[2].querySelector('.selection-hint'));
   q('#wand-settings').prepend(q('#wand-options .wand-threshold'));
   q('#wand-settings-toggle').innerHTML =
     '阈值 <span id="wand-summary">20%</span> · <span id="wand-source">当前层</span>';
@@ -399,7 +408,7 @@ export function createSelectionController(host) {
       host.selection()?.[Math.floor(p.y) * w + Math.floor(p.x)] &&
       host.canEdit()
     ) {
-      gesture = { kind: 'pending-move', start: { ...p }, before: host.selection() };
+      gesture = { kind: 'pending-move', tool, start: { ...p }, before: host.selection() };
       return true;
     }
     gesture = {
@@ -560,7 +569,16 @@ export function createSelectionController(host) {
   function end(cancel = false) {
     if (!gesture) return;
     if (gesture.kind === 'pending-move') {
+      const pending = gesture;
       gesture = null;
+      if (!cancel && pending.tool === 'wand' && mode === 'replace') {
+        const beforeWand = wandState();
+        lastWand = { context: snapshot().context, p: pending.start, before: pending.before, mode };
+        prepareWand();
+        resampleWand();
+        remember(pending.before, beforeWand);
+        update();
+      }
       return;
     }
     if (cancel && gesture.quick) {

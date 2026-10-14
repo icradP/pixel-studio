@@ -145,6 +145,51 @@
   background: var(--accent);
   color: #102236;
 }
+#transform-details {
+  margin: 0 0 8px;
+  border: 0;
+  background: transparent;
+}
+#transform-details summary {
+  padding: 10px 0;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+#transform-details .transform-perspective-options {
+  display: flex;
+  flex-wrap: wrap;
+}
+#transform-details .transform-coordinates {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin-bottom: 12px;
+}
+#transform-details label {
+  min-width: 0;
+}
+#transform-details input[type='number'] {
+  min-height: 36px;
+  font-size: 13px;
+}
+#transform-options > .selection-row {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  touch-action: pan-x;
+}
+#transform-options > .selection-row button {
+  flex: 1 0 auto;
+  min-height: 40px;
+  padding: 0 11px;
+  font-size: 11px;
+}
+#transform-options > .selection-hint {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
 #selection-bar.float-collapsed #selection-count,
 #selection-bar.float-collapsed #selection-done {
   display: none;
@@ -191,6 +236,9 @@
   text-align: center;
 }
 @media (max-width: 550px) {
+  #transform-details .transform-coordinates {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
   #selection-compose .selection-history {
     display: flex;
     margin-right: auto;
