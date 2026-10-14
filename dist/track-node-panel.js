@@ -2,15 +2,23 @@ import { insertCurveKey, subdivideCurve } from './node-editing.js';
 
 export function trackNodePanel(container, initial, { duration, fields, commit, toast }) {
   let tracks = structuredClone(initial),
-    key = fields[0][0],
-    selected = 0;
+    key = fields.some((f) => f[0] === container.dataset.trackField)
+      ? container.dataset.trackField
+      : fields[0][0],
+    selected = Number(container.dataset.trackNodeIndex) || 0;
   const root = document.createElement('details');
   root.className = 'track-node-panel';
   root.innerHTML =
     '<summary>属性关键帧节点</summary><label>属性<select class="track-field"></select></label><label>节点<select class="track-node"></select></label><div class="scene-two"><label>时间 / 秒<input class="track-time" type="number" min="0" step="0.001"></label><label>数值<input class="track-value" type="number" step="0.01"></label></div><div class="scene-two"><button class="track-add">添加节点</button><button class="track-delete">删除节点</button></div><label>批量节点间隔 / 秒<input class="track-spacing" type="number" min="0.001" step="0.01" value="0.2"></label><button class="track-batch">按间隔添加节点</button><p class="help">先选择节点调整时间与数值。新增与批量节点沿用当前曲线，可撤销。</p>';
   container.append(root);
+  const anchor = container.querySelector('#scene-remove-object,#light-delete');
+  if (anchor) anchor.before(root);
   const q = (s) => root.querySelector(s);
   q('.track-field').replaceChildren(...fields.map(([id, name]) => new Option(name, id)));
+  q('.track-spacing').value = container.dataset.trackSpacing || '0.2';
+  q('.track-spacing').onchange = (e) => {
+    container.dataset.trackSpacing = e.target.value;
+  };
   function render() {
     const keys = tracks[key] || [],
       field = fields.find((f) => f[0] === key);
@@ -26,6 +34,7 @@ export function trackNodePanel(container, initial, { duration, fields, commit, t
     q('.track-value').min = field[3];
     q('.track-value').max = field[4];
     q('.track-delete').disabled = !keys.length;
+    q('.track-field').value = key;
   }
   const run = (fn) => {
     try {
@@ -41,10 +50,13 @@ export function trackNodePanel(container, initial, { duration, fields, commit, t
   q('.track-field').onchange = (e) => {
     key = e.target.value;
     selected = 0;
+    container.dataset.trackField = key;
+    container.dataset.trackNodeIndex = '0';
     render();
   };
   q('.track-node').onchange = (e) => {
     selected = +e.target.value;
+    container.dataset.trackNodeIndex = String(selected);
     render();
   };
   for (const control of ['time', 'value'])

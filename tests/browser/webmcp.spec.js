@@ -171,6 +171,53 @@ test('interface rejects stale controls and preserves a field when its value is i
   ).toBe('INVALID_INPUT');
   await expect(page.locator('#playback-speed')).toHaveValue('1');
 });
+
+test('path and parameter node panels support insertion, interval batches and undo', async ({
+  page,
+}) => {
+  await load(page);
+  await create(page);
+  await call(page, 'draw', {
+    frame: 0,
+    layer: 0,
+    selection: 'all',
+    commands: [{ type: 'rect', x: 5, y: 5, width: 8, height: 8, color: '#66ccff' }],
+  });
+  await call(page, 'edit_animation', {
+    objects: [
+      {
+        action: 'create',
+        name: '节点测试',
+        sourceLayers: [0],
+        path: [
+          { x: 8, y: 8 },
+          { x: 28, y: 20 },
+        ],
+      },
+    ],
+  });
+  await page.locator('#procedural-open').click();
+  await page.getByRole('button', { name: '选择动画对象 节点测试', exact: true }).click();
+  await page.locator('.path-node-panel summary').click();
+  await page.locator('.node-add').click();
+  expect((await state(page)).animation.objects[0].path).toHaveLength(3);
+  await page.locator('.node-spacing').fill('4');
+  await page.locator('.node-batch').click();
+  const count = (await state(page)).animation.objects[0].path.length;
+  expect(count).toBeGreaterThan(3);
+  await expect(page.locator('.node-spacing')).toHaveValue('4');
+  await page.locator('.track-node-panel summary').click();
+  await page.locator('.track-spacing').fill('0.25');
+  await page.locator('.track-batch').click();
+  expect((await state(page)).animation.objects[0].tracks.rotation).toHaveLength(9);
+  await page.locator('#scene-undo').click();
+  expect((await state(page)).animation.objects[0].tracks.rotation).toHaveLength(0);
+  await page.locator('#scene-curve').click();
+  await page.locator('.curve-spacing').fill('10');
+  await page.locator('.curve-batch').click();
+  expect((await state(page)).animation.objects[0].progress.length).toBeGreaterThanOrEqual(11);
+  await expect(page.locator('.curve-status')).toContainText('节点');
+});
 async function call(page, name, args = {}) {
   return invoke(page, name, { expectedRevision: (await state(page)).revision, ...args });
 }

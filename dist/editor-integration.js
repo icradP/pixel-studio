@@ -75,6 +75,10 @@ export function createEditorIntegration(host) {
         {
           ...api,
           tools: [...api.tools, ...ui.tools],
+          cancel: () => {
+            api.cancel();
+            ui.cancel();
+          },
           execute: (name, args, options) => {
             const isUI = ui.tools.some((t) => t.name === name),
               read = name === 'pixel_get_interface' || name === 'pixel_get_document';

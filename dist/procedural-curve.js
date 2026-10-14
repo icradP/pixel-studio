@@ -60,8 +60,8 @@ export function curveEditor(
       );
       group.append(c);
     });
-    q('.curve-time').value = Math.round(keys[selected].t * 100);
-    q('.curve-value').value = Math.round(keys[selected].v * 100);
+    q('.curve-time').value = +(keys[selected].t * 100).toFixed(4);
+    q('.curve-value').value = +(keys[selected].v * 100).toFixed(4);
     q('.curve-time').disabled = selected === 0 || selected === keys.length - 1;
     q('.curve-remove').disabled =
       keys.length <= 2 || selected === 0 || selected === keys.length - 1;
@@ -81,7 +81,7 @@ export function curveEditor(
           ? 0
           : selected === keys.length - 1
             ? 1
-            : clamp(t, keys[selected - 1].t + 0.005, keys[selected + 1].t - 0.005),
+            : clamp(t, keys[selected - 1].t + 0.00001, keys[selected + 1].t - 0.00001),
       v: monotonic
         ? selected === 0
           ? 0

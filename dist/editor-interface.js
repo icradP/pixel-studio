@@ -79,7 +79,8 @@ export function createInterfaceAPI(host) {
     revisionNumber = 0,
     last = '',
     running = false,
-    upload = null;
+    upload = null,
+    uploadExpiry;
   const selector =
     'button,input,select,textarea,summary,a[href],[role=button],[tabindex],canvas,.window-body,.plugins-body,.selection-body,.window-head,#stage,#scene-tracks';
   function visible(el) {
@@ -134,7 +135,10 @@ export function createInterfaceAPI(host) {
             : undefined,
       });
     }
-    const signature = JSON.stringify(controls);
+    // Entrance animations change geometry each frame, not the meaning of a control.
+    const signature = JSON.stringify(
+      controls.map((control) => ({ ...control, bounds: undefined, scroll: undefined })),
+    );
     if (signature !== last) {
       last = signature;
       revisionNumber++;
@@ -186,6 +190,10 @@ export function createInterfaceAPI(host) {
             bytes: 0,
             started: Date.now(),
           };
+          clearTimeout(uploadExpiry);
+          uploadExpiry = setTimeout(() => {
+            upload = null;
+          }, 300000);
         } else {
           if (!upload || upload.id !== args.uploadId) fail('INVALID_UPLOAD', '上传已过期');
           if (upload.revision !== args.expectedRevision) {
@@ -297,6 +305,10 @@ export function createInterfaceAPI(host) {
     getInterface,
     get busy() {
       return running;
+    },
+    cancel() {
+      clearTimeout(uploadExpiry);
+      upload = null;
     },
   };
 }
