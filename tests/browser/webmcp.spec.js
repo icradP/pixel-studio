@@ -556,6 +556,23 @@ test('wide canvas, 81 layers and virtualized frame grid support WebMCP, scrollin
   await expect(page.locator('#layer-list [data-drag-key="0"]')).toBeVisible();
   await page.locator('#layer-list [data-drag-key="0"] .layer-select').click();
   await expect(page.locator('#layer-list [data-drag-key="0"]')).toHaveClass(/active/);
+  await page.locator('#layer-list [data-drag-key="0"] .layer-blend').click();
+  await expect(page.locator('#layer-options')).toBeVisible();
+  await expect(page.locator('#layer-options').locator('..')).toHaveClass('layer-inline-options');
+  await page.locator('#opacity').fill('192');
+  await expect(page.locator('#opacity')).toHaveValue('192');
+  await page.locator('#window-layers .window-body').evaluate((body) => {
+    body.scrollTop = 0;
+  });
+  await expect(page.locator('#layer-list [data-drag-key="80"]')).toBeVisible();
+  expect(await page.locator('#layer-list > .layer').count()).toBeLessThan(20);
+  await page.locator('#layer-list [data-drag-key="80"] .layer-blend').click();
+  await expect(page.locator('#layer-list [data-drag-key="80"] .layer-blend')).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  );
+  await page.locator('#layer-list [data-drag-key="80"] .layer-blend').click();
+  await expect(page.locator('#layer-options')).toBeHidden();
   await page.locator('#window-layers .window-close').click();
   await page.locator('#timeline-detail').click();
   await expect(page.locator('#ase-timeline')).toBeVisible();

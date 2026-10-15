@@ -314,6 +314,16 @@
   padding: 0;
   font-size: 11px;
 }
+#layer-list .layer-blend[aria-expanded='true'] {
+  background: #ffffff26;
+  border-radius: 7px;
+  box-shadow: inset 0 -2px #bdddff;
+}
+.layer-inline-options {
+  overflow: hidden;
+  overflow-anchor: none;
+  border-radius: 0 0 10px 10px;
+}
 .layer-swipe-actions {
   visibility: hidden;
   display: flex;
@@ -345,9 +355,10 @@
 }
 #layer-options {
   padding: 12px;
-  margin: 12px 4px 0;
-  border-radius: 10px;
+  margin: 0;
+  border-radius: 0 0 10px 10px;
   background: #1e1e22;
+  border-top: 2px solid #3d91e3;
 }
 .layer-options-head {
   display: flex;

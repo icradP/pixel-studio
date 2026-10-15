@@ -125,6 +125,11 @@ test('layers support N-button options, swipe duplicate, drag reorder and undo ac
   await expect(page.locator('#layer-options')).toBeHidden();
   await page.locator('.layer-blend').first().click();
   await expect(page.locator('#layer-options')).toBeVisible();
+  await expect(page.locator('#layer-list')).toBeVisible();
+  await expect(page.locator('.layer-blend').first()).toHaveAttribute('aria-expanded', 'true');
+  await page.locator('.layer-blend').first().click();
+  await expect(page.locator('#layer-options')).toBeHidden();
+  await page.locator('.layer-blend').first().click();
   await page.locator('#layer-options-close').click();
   await swipe(page, page.locator('.layer-select').first());
   await expect(page.locator('.layer').first()).toHaveClass(/swiped/);
@@ -146,6 +151,73 @@ test('layers support N-button options, swipe duplicate, drag reorder and undo ac
   expect((await saved(page)).layers).toEqual(copied.layers);
   await page.locator('#quick-undo').click();
   expect((await saved(page)).frames).toEqual(original.frames);
+});
+
+test('layer properties expand beneath their N button on iPad and remain attached after edits', async ({
+  page,
+}) => {
+  await ready(page);
+  await page.locator('[data-panel="layers"]').click();
+  const n = page.locator('[data-drag-key="1"] .layer-blend');
+  const options = page.locator('#layer-options');
+  const body = page.locator('#window-layers .window-body');
+  const geometry = () =>
+    page.locator('#layer-list').evaluate((list) => {
+      const owner = list.querySelector('[data-drag-key="1"]');
+      const detail = list.querySelector('.layer-inline-options');
+      const below = list.querySelector('[data-drag-key="0"]');
+      return {
+        owner: owner.getBoundingClientRect().bottom,
+        detailTop: detail.getBoundingClientRect().top,
+        detailBottom: detail.getBoundingClientRect().bottom,
+        contentBottom: detail.firstElementChild.getBoundingClientRect().bottom,
+        below: below.getBoundingClientRect().top,
+        adjacent: owner.nextElementSibling === detail,
+      };
+    });
+  await n.click();
+  await expect(n).toHaveAttribute('aria-expanded', 'true');
+  await expect(options).toBeVisible();
+  await expect
+    .poll(async () => {
+      const g = await geometry();
+      return Math.abs(g.detailBottom - g.contentBottom);
+    })
+    .toBeLessThan(1);
+  const g = await geometry();
+  expect(g.adjacent).toBe(true);
+  expect(g.detailTop - g.owner).toBeGreaterThanOrEqual(0);
+  expect(g.detailTop - g.owner).toBeLessThan(8);
+  expect(g.below).toBeGreaterThanOrEqual(g.detailBottom);
+  await page.locator('#opacity').fill('128');
+  await expect(n).toHaveAttribute('aria-expanded', 'true');
+  await expect(options.locator('strong')).toHaveText('招牌与街灯');
+  await expect(page.locator('#opacity')).toHaveValue('128');
+  await page.locator('.layer-adjustments summary').click();
+  await expect
+    .poll(async () => {
+      const g = await geometry();
+      return Math.abs(g.detailBottom - g.contentBottom);
+    })
+    .toBeLessThan(1);
+  await body.evaluate((e) => {
+    e.scrollTop = 0;
+  });
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await expect(n).toBeInViewport();
+  await n.click();
+  await expect(options).toBeHidden();
+  await expect(page.locator('[data-drag-key="0"]')).toBeInViewport();
+  await n.dblclick();
+  await expect(options).toBeHidden();
+  await n.click();
+  await page.locator('[data-drag-key="2"] .layer-blend').click();
+  await expect(options.locator('strong')).toHaveText('雨点与倒影');
+  await expect(n).toHaveAttribute('aria-expanded', 'false');
+  await page.locator('[data-drag-key="2"] .layer-blend').click();
+  await expect(options).toBeHidden();
+  await page.locator('[data-drag-key="1"] .layer-select').click();
+  await expect(options).toBeHidden();
 });
 
 test('layer solo restores preexisting visibility and layer opacity records one undo step', async ({
