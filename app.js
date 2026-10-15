@@ -2283,7 +2283,8 @@ function stopLayerPreviews() {
 function layersPanel() {
   stopLayerPreviews();
   layerPanelKey = panelContext();
-  const optionsOpen = panelContent('layers').querySelector('#layer-options')?.hidden === false;
+  const optionsOpen =
+    panelContent('layers').querySelector('#layer-options')?.dataset.expanded === 'true';
   const adjustmentsOpen = !!panelContent('layers').querySelector('.layer-adjustments')?.open;
   const previousScroll = panelContent('layers').scrollTop;
   const c = panelContent('layers'),
@@ -2291,14 +2292,17 @@ function layersPanel() {
     parent = parentLayer(project, layer),
     end = subtreeEnd(project, layer);
   c.innerHTML = `<div class="layers-toolbar"><span>${project.layers.length} 图层</span><button id="add-group" aria-label="新建图层组">新建组</button><button id="add-layer" aria-label="新建图层">＋</button></div><div id="layer-list"></div><p class="layers-gesture-hint">轻点选择 · N 打开属性 · 右滑合并 · 左滑快捷操作 · 按住拖动排序</p><section id="layer-options" hidden aria-label="图层选项"><div class="layer-options-head"><strong>${esc(selected.name)}</strong><button id="layer-options-close" aria-label="关闭图层选项">×</button></div><label>不透明度 <output class="row-value" id="opacity-value">${Math.round((selected.opacity / 255) * 100)}%</output><input id="opacity" aria-label="图层不透明度" type="range" min="0" max="255" value="${selected.opacity}"></label><div class="layer-option-grid"><button id="rename-layer">重命名</button><button id="layer-outline">描边</button><button id="duplicate-layer">复制</button><button id="lock-layer">${selected.locked ? '解锁' : '锁定'}</button><button id="clear-layer">清空当前帧</button><button id="layer-up">上移</button><button id="layer-down">下移</button><button id="group-layer">编组</button><button id="ungroup-layer">解散组</button><button id="delete-layer" class="danger">删除图层</button></div><details><summary>移至图层组</summary><label>目标位置<select id="layer-parent"><option value="-1">画布根目录</option>${project.layers.map((l, i) => (l.group && (i < layer || i >= end) ? `<option value="${i}">${esc(l.name)}</option>` : '')).join('')}</select></label><button id="move-to-group" class="panel-wide">移入所选位置</button></details>${selected.group && selected.isolated === false ? '<p class="help">旧版 ASE 直通组保持原作合成方式，组不透明度不可单独修改。</p>' : ''}</section>`;
-  function showLayerOptions(open, restore = false) {
-    if (!restore && open) c.dataset.listScroll = String(c.scrollTop);
-    $('#layer-options').hidden = !open;
-    $('#layer-list').hidden = open;
-    c.querySelector('.layers-gesture-hint').hidden = open;
-    if (!restore) c.scrollTop = open ? 0 : Number(c.dataset.listScroll || 0);
+  let optionsExpanded = optionsOpen;
+  function showLayerOptions(open) {
+    optionsExpanded = open;
+    c.querySelectorAll('.layer-blend').forEach((button) =>
+      button.setAttribute(
+        'aria-expanded',
+        String(open && Number(button.closest('.layer').dataset.dragKey) === layer),
+      ),
+    );
+    disposeLayerList.setExpanded(open);
   }
-  showLayerOptions(optionsOpen, true);
   const run = (fn) => {
     try {
       editProject(fn);
@@ -2370,6 +2374,7 @@ function layersPanel() {
         run((p) => (p.layers[i].collapsed = !p.layers[i].collapsed));
     const select = () => {
       if (i === layer) return;
+      c.querySelector('#layer-options').dataset.expanded = 'false';
       stop();
       layer = i;
       selection = null;
@@ -2377,13 +2382,16 @@ function layersPanel() {
       refresh();
     };
     row.querySelector('.layer-select').onclick = select;
-    row.querySelector('.layer-blend').onclick = () => {
+    const blendButton = row.querySelector('.layer-blend');
+    blendButton.setAttribute('aria-expanded', String(i === layer && optionsExpanded));
+    blendButton.setAttribute('aria-controls', 'layer-options');
+    blendButton.onclick = () => {
       if (i !== layer) {
-        layer = i;
-        refresh();
+        select();
+        c.querySelector(`[data-drag-key="${i}"] .layer-blend`)?.click();
+        return;
       }
-      showLayerOptions(true);
-      $('#opacity').focus({ preventScroll: true });
+      showLayerOptions(!optionsExpanded);
     };
     row.querySelector('[data-layer-copy]').onclick = () =>
       run((p) => (layer = duplicateLayer(p, i)));
@@ -2419,13 +2427,6 @@ function layersPanel() {
     });
     return row;
   };
-  c.scrollTop = previousScroll;
-  disposeLayerList = virtualList(
-    $('#layer-list'),
-    c,
-    visibleLayerOrder(project, layerOrder(project.layers)),
-    makeRow,
-  );
   layerEffects(c, {
     project: () => project,
     layer: () => layer,
@@ -2450,7 +2451,10 @@ function layersPanel() {
   if (adjustmentsOpen && c.querySelector('.layer-adjustments'))
     c.querySelector('.layer-adjustments').open = true;
   c.scrollTop = previousScroll;
-  $('#layer-options-close').onclick = () => showLayerOptions(false);
+  $('#layer-options-close').onclick = () => {
+    c.querySelector(`[data-drag-key="${layer}"] .layer-blend`)?.focus({ preventScroll: true });
+    showLayerOptions(false);
+  };
   $('#duplicate-layer').onclick = () => run((p) => (layer = duplicateLayer(p, layer)));
   for (const [id, label, group] of [
     ['merge-down', '向下合并', false],
@@ -2527,6 +2531,14 @@ function layersPanel() {
       return;
     run((p) => (layer = deleteLayer(p, layer)));
   };
+  disposeLayerList = virtualList(
+    $('#layer-list'),
+    c,
+    visibleLayerOrder(project, layerOrder(project.layers)),
+    makeRow,
+    { detail: { after: layer, element: $('#layer-options'), expanded: optionsExpanded } },
+  );
+  c.scrollTop = previousScroll;
 }
 
 function animationPanel() {
@@ -2611,7 +2623,7 @@ function settingsPanel() {
     <section class="setting-group"><h3>画室</h3>
       <button id="settings-export" class="panel-wide">分享与导出 <span>项目 · 图片 · 动画 ›</span></button><button id="settings-plugins" class="panel-wide">插件工作台 <span>5 个扩展 · ›</span></button>
       <button id="install-help" class="panel-wide">添加到主屏幕 <span>全屏使用 · ›</span></button>
-      <button id="check-update" class="panel-wide">检查更新 <span>v0.17.0</span></button>
+      <button id="check-update" class="panel-wide">检查更新 <span>v0.17.1</span></button>
     </section>`;
   editorIntegration.settings(panelContent('settings'));
   document
@@ -2667,7 +2679,7 @@ function settingsPanel() {
     if (r) {
       await r.update();
       toast('已检查更新；如有新版本，顶部会显示更新提示');
-    } else toast('当前版本 v0.17.0');
+    } else toast('当前版本 v0.17.1');
   };
 }
 function download(data, ext, type) {
